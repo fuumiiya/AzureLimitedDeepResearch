@@ -30,15 +30,19 @@ def get_azure_openai_token_authenticator():
     
     return get_token
 
-# Bing Search API (v7) 用の非同期検索関数
-async def bing_search_async(search_queries, num_results=5, freshness=None):
+# Azure AI Search用の非同期検索関数
+async def azure_ai_search_async(search_queries, index_name=None, search_type="vector", top_k=5, 
+                               semantic_configuration=None, vector_fields=None):
     """
-    Bing Search API (v7) を使って非同期でWeb検索を実行する関数
+    Azure AI Searchを使って非同期で検索を実行する関数
     
     Args:
         search_queries (Union[str, List[str]]): 検索クエリまたはクエリのリスト
-        num_results (int, optional): 各クエリあたりの結果数。デフォルトは5。
-        freshness (str, optional): 結果の鮮度フィルター (Day, Week, Month)。デフォルトはNone。
+        index_name (Optional[str]): 検索対象のインデックス名（必須）
+        search_type (Optional[str]): "vector", "semantic", "hybrid"のいずれか
+        top_k (int): 各クエリに対して返す結果の最大数
+        semantic_configuration (Optional[str]): 意味検索を使用する場合の設定名
+        vector_fields (Optional[List[str]]): ベクトル検索に使用するフィールド名のリスト
         
     Returns:
         List[dict]: 各クエリの検索結果のリスト。形式は以下の通り:
@@ -49,7 +53,7 @@ async def bing_search_async(search_queries, num_results=5, freshness=None):
                     {
                         "title": "タイトル",
                         "url": "URL",
-                        "content": "コンテンツの要約",
+                        "content": "コンテンツ要約",
                         "score": 1.0,
                         "raw_content": "生のコンテンツ"
                     },
@@ -59,18 +63,47 @@ async def bing_search_async(search_queries, num_results=5, freshness=None):
             ...
         ]
     """
+    from azure.core.credentials import AzureKeyCredential
+    from azure.search.documents import SearchClient
+    from azure.search.documents.models import VectorizableTextQuery, QueryType, QueryCaptionType, QueryAnswerType
+    
     if isinstance(search_queries, str):
         search_queries = [search_queries]
     
-    # 環境変数からBing Search APIのキーとエンドポイントを取得
-    subscription_key = os.environ.get('BING_API_KEY')
-    endpoint = os.environ.get('BING_ENDPOINT')
+    # 環境変数から情報を取得
+    search_service = os.environ.get("AZURE_SEARCH_SERVICE")
+    if not search_service:
+        raise ValueError("環境変数 AZURE_SEARCH_SERVICE が設定されていません")
     
-    if not subscription_key:
-        raise ValueError("環境変数 'BING_API_KEY' が設定されていません")
-    if not endpoint:
-        # デフォルトのエンドポイントを使用
-        endpoint = "https://api.bing.microsoft.com/v7.0/search"
+    # インデックス名が指定されていない場合はエラー
+    if not index_name:
+        index_name = os.environ.get("AZURE_SEARCH_INDEX")
+        if not index_name:
+            raise ValueError("インデックス名が指定されていないか、環境変数 AZURE_SEARCH_INDEX が設定されていません")
+    
+    # デフォルトのベクトルフィールド
+    if not vector_fields and search_type in ["vector", "hybrid"]:
+        vector_fields = ["contentVector"]
+    
+    # Azure AI Searchクライアントを初期化
+    endpoint = f"https://{search_service}.search.windows.net"
+    
+    # 認証情報を取得 (キーまたはマネージドID)
+    api_key = os.environ.get("AZURE_SEARCH_KEY")
+    
+    if api_key:
+        # API Keyを使用
+        credential = AzureKeyCredential(api_key)
+    else:
+        # マネージドIDを使用
+        credential = DefaultAzureCredential()
+    
+    # SearchClientの初期化
+    search_client = SearchClient(
+        endpoint=endpoint,
+        index_name=index_name,
+        credential=credential
+    )
     
     # セマフォで同時リクエスト数を制限
     semaphore = asyncio.Semaphore(5)
@@ -78,68 +111,118 @@ async def bing_search_async(search_queries, num_results=5, freshness=None):
     
     async def search_single_query(query):
         async with semaphore:
-            headers = {
-                "Ocp-Apim-Subscription-Key": subscription_key
+            query_result = {
+                "query": query,
+                "results": [],
+                "follow_up_questions": None,
+                "answer": None,
+                "images": []
             }
-            
-            params = {
-                "q": query,
-                "count": num_results,
-                "textDecorations": "true",
-                "textFormat": "HTML"
-            }
-            
-            # 鮮度フィルターを適用
-            if freshness:
-                params["freshness"] = freshness
             
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(endpoint, headers=headers, params=params) as response:
-                        if response.status != 200:
-                            error_text = await response.text()
-                            logging.error(f"Bing Search API エラー: {response.status} - {error_text}")
-                            return {
-                                "query": query,
-                                "results": []
-                            }
+                # ループを取得して同期処理を実行
+                loop = asyncio.get_event_loop()
+                
+                # 検索処理を実行する関数
+                def perform_search():
+                    if search_type == "vector":
+                        # ベクトル検索の実行
+                        search_results = search_client.search(
+                            search_text=None,
+                            vector_queries=[
+                                VectorizableTextQuery(
+                                    text=query,
+                                    k=top_k,
+                                    fields=vector_fields
+                                )
+                            ],
+                            top=top_k
+                        )
+                    elif search_type == "semantic":
+                        # セマンティック検索の実行
+                        if not semantic_configuration:
+                            raise ValueError("セマンティック検索には semantic_configuration が必要です")
                         
-                        response_json = await response.json()
-                        
-                        # 検索結果を整形
-                        formatted_results = []
-                        
-                        if "webPages" in response_json and "value" in response_json["webPages"]:
-                            for i, result in enumerate(response_json["webPages"]["value"]):
-                                # HTMLタグを除去してプレーンテキストに変換
-                                snippet = html.unescape(result.get("snippet", ""))
-                                
-                                # 検索結果オブジェクトを作成
-                                search_result = {
-                                    "title": result.get("name", ""),
-                                    "url": result.get("url", ""),
-                                    "content": snippet,
-                                    "score": 1.0 - (i * 0.1),  # スコアは順番に基づいて降順
-                                    "raw_content": snippet
-                                }
-                                formatted_results.append(search_result)
-                        
-                        return {
-                            "query": query,
-                            "results": formatted_results,
-                            "follow_up_questions": None,
-                            "answer": None,
-                            "images": []
-                        }
+                        search_results = search_client.search(
+                            search_text=query,
+                            query_type=QueryType.SEMANTIC,
+                            semantic_configuration_name=semantic_configuration,
+                            query_caption=QueryCaptionType.EXTRACTIVE,
+                            query_answer=QueryAnswerType.EXTRACTIVE,
+                            top=top_k
+                        )
+                    elif search_type == "hybrid":
+                        # ハイブリッド検索の実行（ベクトル+キーワード）
+                        if not semantic_configuration:
+                            # セマンティック設定なしのハイブリッド検索
+                            search_results = search_client.search(
+                                search_text=query,
+                                vector_queries=[
+                                    VectorizableTextQuery(
+                                        text=query,
+                                        k=top_k,
+                                        fields=vector_fields
+                                    )
+                                ],
+                                top=top_k
+                            )
+                        else:
+                            # セマンティック機能付きのハイブリッド検索
+                            search_results = search_client.search(
+                                search_text=query,
+                                query_type=QueryType.SEMANTIC,
+                                semantic_configuration_name=semantic_configuration,
+                                query_caption=QueryCaptionType.EXTRACTIVE,
+                                vector_queries=[
+                                    VectorizableTextQuery(
+                                        text=query,
+                                        k=top_k,
+                                        fields=vector_fields
+                                    )
+                                ],
+                                top=top_k
+                            )
+                    else:
+                        # デフォルトはキーワード検索
+                        search_results = search_client.search(query, top=top_k)
+                    
+                    return list(search_results)
+                
+                # 同期検索処理を実行
+                search_results = await loop.run_in_executor(None, perform_search)
+                
+                # 結果の処理
+                for i, result in enumerate(search_results):
+                    # score値を取得、なければインデックスからスコアを生成
+                    score = getattr(result, "@search.score", 1.0 - (i * 0.1))
+                    
+                    # ドキュメントからタイトル、URL、コンテンツを抽出
+                    # 注: 実際のフィールド名はインデックスによって異なる可能性があります
+                    title = getattr(result, "title", "タイトルなし")
+                    url = getattr(result, "url", "URLなし")
+                    content = getattr(result, "content", "")
+                    
+                    # セマンティック検索の場合、キャプションがあれば使用
+                    if hasattr(result, "@search.captions") and result["@search.captions"]:
+                        caption = result["@search.captions"][0]["text"]
+                        if caption:
+                            content = caption
+                    
+                    search_result = {
+                        "title": title,
+                        "url": url,
+                        "content": content,
+                        "score": score,
+                        "raw_content": content  # raw_contentとcontentを同じにする
+                    }
+                    
+                    query_result["results"].append(search_result)
+            
             except Exception as e:
-                logging.error(f"Bing検索中にエラーが発生しました: {str(e)}")
-                return {
-                    "query": query,
-                    "results": [],
-                    "follow_up_questions": None,
-                    "answer": None,
-                    "images": []
-                }
+                logging.error(f"Azure AI Search中にエラーが発生しました: {str(e)}")
+                # エラーが発生しても処理を続行し、空の結果を返す
+            
+            return query_result
     
     # すべてのクエリの検索を非同期で実行
     tasks = [search_single_query(query) for query in search_queries]
@@ -152,16 +235,26 @@ original_select_and_execute_search = select_and_execute_search
 
 @wraps(original_select_and_execute_search)
 async def patched_select_and_execute_search(search_api: str, query_list: list[str], params_to_pass: dict) -> str:
-    """Select and execute the appropriate search API with Bing support.
+    """Select and execute the appropriate search API with Azure AI Search support.
     """
-    # Bing検索APIのサポートを追加
-    if search_api == "bing":
+    # Azure AI Search APIのサポートを追加
+    if search_api == "azure_ai_search":
         # パラメータの取得
-        num_results = params_to_pass.get("num_results", 5)
-        freshness = params_to_pass.get("freshness", None)
+        index_name = params_to_pass.get("index_name")
+        search_type = params_to_pass.get("search_type", "vector")
+        top_k = params_to_pass.get("top_k", 5)
+        semantic_configuration = params_to_pass.get("semantic_configuration")
+        vector_fields = params_to_pass.get("vector_fields")
         
-        # Bing検索の実行
-        search_results = await bing_search_async(query_list, num_results=num_results, freshness=freshness)
+        # Azure AI Search検索の実行
+        search_results = await azure_ai_search_async(
+            query_list, 
+            index_name=index_name,
+            search_type=search_type,
+            top_k=top_k,
+            semantic_configuration=semantic_configuration,
+            vector_fields=vector_fields
+        )
         return deduplicate_and_format_sources(search_results, max_tokens_per_source=4000)
     else:
         # 他の検索APIは元の関数を使用

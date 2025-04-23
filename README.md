@@ -12,7 +12,7 @@ Open Deep Researchをサーバーレス環境で実行するためのAzure Funct
 
 1. **Azure Functions統合** - オリジナルのLangGraphワークフローをHTTPトリガーで呼び出せるように実装
 2. **マネージドID認証** - Azure OpenAIへのアクセスにマネージドIDを使用する機能を追加
-3. **Bing Search API対応** - Azureの検索サービスであるBing Search API (v7)を使った検索機能を追加
+3. **Azure AI Search対応** - Azure AI Searchを使ったベクトル検索機能を追加し、独自のドキュメントコレクションを活用可能
 4. **自動実行フロー** - 人間の介入なしで完全自動化されたレポート生成を実現
 
 ## セットアップ方法
@@ -34,23 +34,17 @@ Open Deep Researchをサーバーレス環境で実行するためのAzure Funct
     "FUNCTIONS_WORKER_RUNTIME": "python",
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
     
-    "TAVILY_API_KEY": "<your_tavily_api_key>",
-    "ANTHROPIC_API_KEY": "<your_anthropic_api_key>",
-    "OPENAI_API_KEY": "<your_openai_api_key>",
-    "PERPLEXITY_API_KEY": "<your_perplexity_api_key>",
-    "EXA_API_KEY": "<your_exa_api_key>",
-    "PUBMED_API_KEY": "<your_pubmed_api_key>",
-    "PUBMED_EMAIL": "<your_email@example.com>",
-    "LINKUP_API_KEY": "<your_linkup_api_key>",
-    "GOOGLE_API_KEY": "<your_google_api_key>",
-    "GOOGLE_CX": "<your_google_custom_search_engine_id>",
-    "BING_API_KEY": "<your_bing_api_key>",
-    "BING_ENDPOINT": "https://api.bing.microsoft.com/v7.0/search"
+    "AZURE_OPENAI_ENDPOINT": "https://<your-resource-name>.openai.azure.com/",
+    "AZURE_OPENAI_API_KEY": "<your_azure_openai_api_key>",
+    
+    "AZURE_SEARCH_SERVICE": "<your-search-service-name>",
+    "AZURE_SEARCH_KEY": "<your-search-api-key>",
+    "AZURE_SEARCH_INDEX": "<your-search-index-name>"
   }
 }
 ```
 
-使用する検索APIとモデルに応じて必要なAPIキーを設定してください。
+マネージドIDを使用する場合は、APIキー設定は不要です。
 
 ### Azure OpenAIのマネージドID認証
 
@@ -82,40 +76,49 @@ Open Deep Researchをサーバーレス環境で実行するためのAzure Funct
    }
    ```
 
-### Bing Search APIの使用
+### Azure AI Searchの使用
 
-このアプリケーションは、Web検索にBing Search API (v7)を使用する機能をサポートしています。Bing Search APIを使用することで、Microsoftの高品質な検索結果をレポート生成に活用できます。
+このアプリケーションは、独自のドキュメントコレクションからの検索にAzure AI Searchを使用する機能をサポートしています。Azure AI Searchを使用することで、Web検索ではなく組織固有のドキュメントに基づいたレポート生成が可能になります。
 
 #### 設定手順
 
-1. **Bing Search APIキーの取得**:
-   [Azure Portal](https://portal.azure.com)でBing Search v7リソースを作成し、APIキーを取得します。
+1. **Azure AI Searchの設定**:
+   [Azure Portal](https://portal.azure.com)でAzure AI Searchサービスを作成し、インデックスを設定します。
 
 2. **環境変数の設定**:
    以下の環境変数を設定します：
    ```json
    {
-     "BING_API_KEY": "<your-bing-api-key>",
-     "BING_ENDPOINT": "https://api.bing.microsoft.com/v7.0/search"
+     "AZURE_SEARCH_SERVICE": "<your-search-service-name>",
+     "AZURE_SEARCH_KEY": "<your-search-api-key>",
+     "AZURE_SEARCH_INDEX": "<your-search-index-name>"
    }
    ```
 
-3. **検索APIとして指定**:
-   リクエスト時に `search_api` パラメータを `"bing"` に設定します：
+3. **マネージドIDの設定（オプション）**:
+   APIキーの代わりにマネージドIDを使用する場合は、関数アプリのマネージドIDにAzure AI Searchリソースへの「検索インデックスの読み取り」権限を付与します。
+
+4. **検索APIとして指定**:
+   リクエスト時に `search_api` パラメータを `"azure_ai_search"` に設定します：
    ```json
    {
      "topic": "AIの最新動向",
-     "search_api": "bing",
+     "search_api": "azure_ai_search",
      "search_api_config": {
-       "num_results": 8,
-       "freshness": "Month"
+       "index_name": "your-index-name",
+       "search_type": "vector",
+       "top_k": 5,
+       "vector_fields": ["contentVector"]
      }
    }
    ```
 
-4. **追加の設定オプション**:
-   - `num_results`: 各クエリあたりの検索結果数（デフォルト: 5）
-   - `freshness`: 結果の鮮度フィルター（"Day"、"Week"、"Month"）
+5. **追加の設定オプション**:
+   - `index_name`: 検索対象のインデックス名
+   - `search_type`: 検索タイプ（"vector", "semantic", "hybrid"）
+   - `top_k`: 取得する結果の最大数
+   - `semantic_configuration`: セマンティック検索設定名
+   - `vector_fields`: ベクトル検索対象のフィールド名
 
 ### デプロイ
 
@@ -143,16 +146,18 @@ curl -X POST https://<app-name>.azurewebsites.net/api/generate-report \
   -H "x-functions-key: <function-key>" \
   -d '{
     "topic": "AIにおける大規模言語モデルの最近の進歩",
-    "search_api": "bing",
+    "search_api": "azure_ai_search",
     "planner_provider": "azure-openai",
-    "planner_model": "gpt-4",
+    "planner_model": "gpt-4o",
     "writer_provider": "azure-openai",
-    "writer_model": "gpt-35-turbo",
+    "writer_model": "gpt-4o",
     "max_search_depth": 2,
     "number_of_queries": 3,
     "search_api_config": {
-      "num_results": 8,
-      "freshness": "Month"
+      "index_name": "ai-documents",
+      "search_type": "vector",
+      "top_k": 5,
+      "vector_fields": ["contentVector"]
     }
   }'
 ```
@@ -171,7 +176,7 @@ curl -X POST https://<app-name>.azurewebsites.net/api/generate-report \
 | パラメータ | 説明 | デフォルト値 |
 |------------|------|------------|
 | `topic` | レポートのトピック（必須） | - |
-| `search_api` | 検索API（"tavily", "perplexity", "exa", "bing"など） | "tavily" |
+| `search_api` | 検索API（"tavily", "perplexity", "exa", "azure_ai_search"など） | "tavily" |
 | `planner_provider` | プランナーモデルのプロバイダー | "anthropic" |
 | `planner_model` | プランナーモデル名 | "claude-3-7-sonnet-latest" |
 | `writer_provider` | ライターモデルのプロバイダー | "anthropic" |
@@ -185,9 +190,12 @@ curl -X POST https://<app-name>.azurewebsites.net/api/generate-report \
 
 各検索APIは特定の設定パラメータをサポートしています：
 
-* **Bing**
-  - `num_results`: 各クエリの結果数（デフォルト: 5）
-  - `freshness`: 結果の鮮度（"Day", "Week", "Month"）
+* **Azure AI Search**
+  - `index_name`: 検索対象のインデックス名
+  - `search_type`: 検索タイプ（"vector", "semantic", "hybrid"）
+  - `top_k`: 取得する結果の最大数
+  - `semantic_configuration`: セマンティック検索設定名
+  - `vector_fields`: ベクトル検索対象のフィールド名
 
 * **Exa**
   - `max_characters`: 最大文字数
@@ -216,6 +224,7 @@ curl -X POST https://<app-name>.azurewebsites.net/api/generate-report \
 - APIキーの使用量とコストを監視してください。
 - 大量のリクエストを送信する場合は、レート制限に注意してください。
 - マネージドIDを使用する場合、関数アプリに適切なアクセス権が付与されていることを確認してください。
+- Azure AI Searchを使用する場合は、事前にインデックスを適切に設定し、ベクトル検索が有効になっていることを確認してください。
 
 # Open Deep Research
  
@@ -237,6 +246,7 @@ Available search tools:
 * [Linkup API](https://www.linkup.so/) - General web search
 * [DuckDuckGo API](https://duckduckgo.com/) - General web search
 * [Google Search API/Scrapper](https://google.com/) - Create custom search engine [here](https://programmablesearchengine.google.com/controlpanel/all) and get API key [here](https://developers.google.com/custom-search/v1/introduction)
+* [Azure AI Search](https://azure.microsoft.com/ja-jp/products/ai-services/ai-search/) - Vector and semantic search for your own document collections
 
 Open Deep Research uses a planner LLM for report planning and a writer LLM for report writing: 
 

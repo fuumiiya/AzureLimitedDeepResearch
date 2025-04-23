@@ -47,6 +47,7 @@ def get_search_params(search_api: str, search_api_config: Optional[Dict[str, Any
         "arxiv": ["load_max_docs", "get_full_documents", "load_all_available_meta"],
         "pubmed": ["top_k_results", "email", "api_key", "doc_content_chars_max"],
         "linkup": ["depth"],
+        "azure_ai_search": ["index_name", "search_type", "top_k", "semantic_configuration", "vector_fields"],
     }
 
     # Get the list of accepted parameters for the given search API

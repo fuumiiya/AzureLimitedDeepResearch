@@ -1,0 +1,24 @@
+{
+    // 必須パラメータ
+    "topic": "人工知能の倫理的課題",
+    
+    // 検索API設定
+    "search_api": "azure_ai_search",  
+    "search_api_config": {
+      "index_name": "ai-documents",
+      "search_type": "vector",
+      "top_k": 5,
+      "vector_fields": ["contentVector"]
+    },
+    
+    // AOAIモデル設定
+    "planner_provider": "azure-openai",  // Azure OpenAIを使用
+    "planner_model": "gpt-4o",           // デプロイ名
+    
+    "writer_provider": "azure-openai",   // Azure OpenAIを使用
+    "writer_model": "gpt-4o",            // デプロイ名
+    
+    // 検索設定
+    "max_search_depth": 2,
+    "number_of_queries": 3
+  }
