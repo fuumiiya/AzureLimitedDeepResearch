@@ -1,0 +1,9 @@
+azure-functions
+open-deep-research
+langgraph>=0.0.38
+langchain
+langchain-core
+langchain-community
+azure-identity>=1.12.0
+azure-core>=1.26.3
+aiohttp>=3.8.0 
