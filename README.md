@@ -78,47 +78,51 @@ Open Deep Researchをサーバーレス環境で実行するためのAzure Funct
 
 ### Azure AI Searchの使用
 
-このアプリケーションは、独自のドキュメントコレクションからの検索にAzure AI Searchを使用する機能をサポートしています。Azure AI Searchを使用することで、Web検索ではなく組織固有のドキュメントに基づいたレポート生成が可能になります。
+このアプリケーションでは、Azure AI Searchを使用してセマンティックハイブリッド検索（キーワード検索＋ベクトル検索＋セマンティック機能）を実行し、最も関連性の高い検索結果を取得します。
 
-#### 設定手順
+#### セットアップ手順
 
-1. **Azure AI Searchの設定**:
-   [Azure Portal](https://portal.azure.com)でAzure AI Searchサービスを作成し、インデックスを設定します。
+1. [Azure Portal](https://portal.azure.com/)でAzure AI Searchサービスを作成し、以下の設定を行います：
+   - インデックスの作成と設定
+   - セマンティック検索の設定（セマンティック設定を必ず作成してください）
 
-2. **環境変数の設定**:
-   以下の環境変数を設定します：
+2. 以下の環境変数を設定します：
+   ```
+   AZURE_SEARCH_SERVICE=<あなたのサービス名>
+   AZURE_SEARCH_KEY=<あなたのAPIキー>
+   AZURE_SEARCH_INDEX=<あなたのインデックス名>
+   ```
+
+3. （オプション）マネージドIDを使用する場合は、APIキーの代わりに適切な権限を設定します。
+
+4. リクエストで検索APIを指定します：
    ```json
-   {
-     "AZURE_SEARCH_SERVICE": "<your-search-service-name>",
-     "AZURE_SEARCH_KEY": "<your-search-api-key>",
-     "AZURE_SEARCH_INDEX": "<your-search-index-name>"
+   "search_api": "azure_ai_search"
+   ```
+
+5. 必要に応じて、以下の追加設定が可能です：
+   ```json
+   "search_api_config": {
+     "index_name": "your-index-name",  // デフォルトは環境変数 AZURE_SEARCH_INDEX の値
+     "top_k": 5,                       // 返される結果の数（デフォルト: 5）
+     "semantic_configuration": "your-semantic-config-name",  // デフォルト: "default-semantic-config"
+     "vector_fields": ["embedding"]    // ベクトル検索に使用するフィールド名
    }
    ```
 
-3. **マネージドIDの設定（オプション）**:
-   APIキーの代わりにマネージドIDを使用する場合は、関数アプリのマネージドIDにAzure AI Searchリソースへの「検索インデックスの読み取り」権限を付与します。
+#### 重要な注意事項
 
-4. **検索APIとして指定**:
-   リクエスト時に `search_api` パラメータを `"azure_ai_search"` に設定します：
-   ```json
-   {
-     "topic": "AIの最新動向",
-     "search_api": "azure_ai_search",
-     "search_api_config": {
-       "index_name": "your-index-name",
-       "search_type": "vector",
-       "top_k": 5,
-       "vector_fields": ["contentVector"]
-     }
-   }
-   ```
+- **semantic_configuration**: セマンティック検索設定の名前を指定します。デフォルト値は "default-semantic-config" です。セマンティック設定が存在しない場合、アプリケーションは標準的なハイブリッド検索（キーワード + ベクトル）に自動的にフォールバックします。
 
-5. **追加の設定オプション**:
-   - `index_name`: 検索対象のインデックス名
-   - `search_type`: 検索タイプ（"vector", "semantic", "hybrid"）
-   - `top_k`: 取得する結果の最大数
-   - `semantic_configuration`: セマンティック検索設定名
-   - `vector_fields`: ベクトル検索対象のフィールド名
+- **レポート生成時間**: 大量のドキュメントを検索する場合、処理に時間がかかることがあります。
+
+- **APIキーの使用とコスト**: Azure AI Searchの使用には料金が発生します。使用状況とコストを監視してください。
+
+- **レート制限**: 大量のリクエストを送信する場合は、Azure AI Searchのレート制限に注意してください。
+
+- **アクセス権限**: マネージドIDを使用する場合は、適切なアクセス権限があることを確認してください。
+
+- **インデックスのセットアップ**: Azure AI Searchを使用するには、適切にインデックスをセットアップし、ベクトル検索とセマンティック設定の両方を有効にする必要があります。
 
 ### デプロイ
 
@@ -155,8 +159,8 @@ curl -X POST https://<app-name>.azurewebsites.net/api/generate-report \
     "number_of_queries": 3,
     "search_api_config": {
       "index_name": "ai-documents",
-      "search_type": "vector",
       "top_k": 5,
+      "semantic_configuration": "your-semantic-config",
       "vector_fields": ["contentVector"]
     }
   }'
@@ -192,9 +196,8 @@ curl -X POST https://<app-name>.azurewebsites.net/api/generate-report \
 
 * **Azure AI Search**
   - `index_name`: 検索対象のインデックス名
-  - `search_type`: 検索タイプ（"vector", "semantic", "hybrid"）
   - `top_k`: 取得する結果の最大数
-  - `semantic_configuration`: セマンティック検索設定名
+  - `semantic_configuration`: セマンティック検索設定名（デフォルト: "default-semantic-config"）
   - `vector_fields`: ベクトル検索対象のフィールド名
 
 * **Exa**
@@ -224,7 +227,7 @@ curl -X POST https://<app-name>.azurewebsites.net/api/generate-report \
 - APIキーの使用量とコストを監視してください。
 - 大量のリクエストを送信する場合は、レート制限に注意してください。
 - マネージドIDを使用する場合、関数アプリに適切なアクセス権が付与されていることを確認してください。
-- Azure AI Searchを使用する場合は、事前にインデックスを適切に設定し、ベクトル検索が有効になっていることを確認してください。
+- Azure AI Searchを使用する場合は、事前にインデックスを適切に設定し、ベクトル検索とセマンティック設定が有効になっていることを確認してください。セマンティック設定がない場合は、通常のハイブリッド検索にフォールバックします。
 
 # Open Deep Research
  
