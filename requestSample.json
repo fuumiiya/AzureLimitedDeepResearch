@@ -1,24 +1,18 @@
-{
-    // 必須パラメータ
-    "topic": "人工知能の倫理的課題",
-    
-    // 検索API設定
-    "search_api": "azure_ai_search",  
-    "search_api_config": {
-      "index_name": "ai-documents",
-      "search_type": "vector",
-      "top_k": 5,
-      "vector_fields": ["contentVector"]
-    },
-    
-    // AOAIモデル設定
-    "planner_provider": "azure-openai",  // Azure OpenAIを使用
-    "planner_model": "gpt-4o",           // デプロイ名
-    
-    "writer_provider": "azure-openai",   // Azure OpenAIを使用
-    "writer_model": "gpt-4o",            // デプロイ名
-    
-    // 検索設定
+curl -X POST http://localhost:7071/api/main \
+-H "Content-Type: application/json" \
+-d '{
+    "topic": "生成AIによる自治体の業務改革",
+    "search_api": "azure_ai_search",
+    "planner_provider": "azure-openai",
+    "planner_model": "gpt-4",
+    "writer_provider": "azure-openai",
+    "writer_model": "gpt-4",
     "max_search_depth": 2,
-    "number_of_queries": 3
-  }
+    "number_of_queries": 3,
+    "search_api_config": {
+        "index_name": "test-index",
+        "top_k": 5,
+        "semantic_configuration": "default-semantic-config",
+        "use_managed_identity": true
+    }
+}'

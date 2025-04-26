@@ -6,4 +6,6 @@ langchain-core
 langchain-community
 azure-identity>=1.12.0
 azure-core>=1.26.3
-aiohttp>=3.8.0 
+aiohttp>=3.8.0
+azure-search-documents>=11.4.0
+openai>=1.0.0 
