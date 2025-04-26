@@ -39,7 +39,8 @@ Open Deep Researchをサーバーレス環境で実行するためのAzure Funct
     
     "AZURE_SEARCH_SERVICE": "<your-search-service-name>",
     "AZURE_SEARCH_KEY": "<your-search-api-key>",
-    "AZURE_SEARCH_INDEX": "<your-search-index-name>"
+    "AZURE_SEARCH_INDEX": "<your-search-index-name>",
+    "USE_MANAGED_IDENTITY": "false"
   }
 }
 ```
@@ -177,49 +178,36 @@ curl -X POST https://<app-name>.azurewebsites.net/api/generate-report \
 
 ## 設定オプション
 
-| パラメータ | 説明 | デフォルト値 |
-|------------|------|------------|
-| `topic` | レポートのトピック（必須） | - |
-| `search_api` | 検索API（"tavily", "perplexity", "exa", "azure_ai_search"など） | "tavily" |
-| `planner_provider` | プランナーモデルのプロバイダー | "anthropic" |
-| `planner_model` | プランナーモデル名 | "claude-3-7-sonnet-latest" |
-| `writer_provider` | ライターモデルのプロバイダー | "anthropic" |
-| `writer_model` | ライターモデル名 | "claude-3-5-sonnet-latest" |
-| `max_search_depth` | 検索の最大深度 | 1 |
-| `number_of_queries` | セクションごとの検索クエリ数 | 2 |
-| `report_structure` | レポート構造の指定 | デフォルト構造 |
-| `search_api_config` | 検索API固有の設定 | {} |
+## リクエストパラメータ
 
-### search_api_configのオプション
+### 必須パラメータ
 
-各検索APIは特定の設定パラメータをサポートしています：
+| パラメータ | 説明 | 例 |
+|------------|------|----|
+| `topic` | レポートのトピック | "生成AIによる自治体の業務改革" |
+| `search_api` | 使用する検索API | "azure_ai_search" |
 
-* **Azure AI Search**
-  - `index_name`: 検索対象のインデックス名
-  - `top_k`: 取得する結果の最大数
-  - `semantic_configuration`: セマンティック検索設定名（デフォルト: "default-semantic-config"）
-  - `vector_fields`: ベクトル検索対象のフィールド名
+### オプションパラメータ
 
-* **Exa**
-  - `max_characters`: 最大文字数
-  - `num_results`: 結果数
-  - `include_domains`: 含めるドメイン（リスト）
-  - `exclude_domains`: 除外するドメイン（リスト）
-  - `subpages`: サブページの数
+| パラメータ | 説明 | デフォルト値 | 例 |
+|------------|------|------------|----|
+| `planner_provider` | プランナーモデルのプロバイダー | "anthropic" | "azure-openai" |
+| `planner_model` | プランナーモデル名 | "claude-3-7-sonnet-latest" | "gpt-4" |
+| `writer_provider` | ライターモデルのプロバイダー | "anthropic" | "azure-openai" |
+| `writer_model` | ライターモデル名 | "claude-3-5-sonnet-latest" | "gpt-4" |
+| `max_search_depth` | 検索の最大深度 | 2 | 2 |
+| `number_of_queries` | セクションごとの検索クエリ数 | 2 | 3 |
+| `report_structure` | レポート構造の指定 | デフォルト構造 | - |
+| `search_api_config` | 検索API固有の設定 | {} | 下記参照 |
 
-* **ArXiv**
-  - `load_max_docs`: 最大ドキュメント数
-  - `get_full_documents`: 完全なドキュメントを取得するかどうか
-  - `load_all_available_meta`: すべての利用可能なメタデータを読み込むかどうか
+### search_api_configのオプション（Azure AI Searchの場合）
 
-* **PubMed**
-  - `top_k_results`: 上位k件の結果
-  - `email`: 電子メール
-  - `api_key`: APIキー
-  - `doc_content_chars_max`: ドキュメントコンテンツの最大文字数
-
-* **Linkup**
-  - `depth`: 検索の深さ
+| パラメータ | 説明 | デフォルト値 | 必須 |
+|------------|------|------------|------|
+| `index_name` | 検索対象のインデックス名 | 環境変数`AZURE_SEARCH_INDEX` | 環境変数が設定されていない場合は必須 |
+| `top_k` | 取得する結果の最大数 | 5 | 任意 |
+| `semantic_configuration` | セマンティック検索設定名 | "default-semantic-config" | 任意 |
+| `use_managed_identity` | マネージドID認証を使用するか | false | 任意 |
 
 ## 注意事項
 

@@ -3,10 +3,11 @@
   "Values": {
     "FUNCTIONS_WORKER_RUNTIME": "python",
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
-    "AZURE_SEARCH_SERVICE": "your-search-service-name",
-    "AZURE_SEARCH_INDEX": "your-index-name",
-    "AZURE_SEARCH_KEY": "your-search-key",
-    "AZURE_OPENAI_ENDPOINT": "https://your-openai-resource.openai.azure.com/",
-    "AZURE_OPENAI_API_VERSION": "2023-10-01-preview"
+    "AZURE_SEARCH_SERVICE": "<your-search-service-name>",
+    "AZURE_SEARCH_INDEX": "<your-search-index-name>",
+    "AZURE_SEARCH_KEY": "<your-search-api-key>",
+    "AZURE_OPENAI_ENDPOINT": "https://<your-openai-resource>.openai.azure.com/",
+    "AZURE_OPENAI_API_KEY": "<your-openai-api-key>",
+    "USE_MANAGED_IDENTITY": "false"
   }
 } 

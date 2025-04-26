@@ -11,16 +11,109 @@ from azure.identity import DefaultAzureCredential
 from azure.core.credentials import TokenCredential, AzureKeyCredential
 from azure.search.documents import SearchClient
 from azure.search.documents.models import QueryType
-from langchain.chat_models import AzureChatOpenAI
+from langchain_community.chat_models import AzureChatOpenAI
 from langchain.chat_models import init_chat_model
 from functools import wraps
 import aiohttp
 from open_deep_research.utils import deduplicate_and_format_sources, select_and_execute_search
-from open_deep_research.embeddings import MultiModalEmbeddings
-from open_deep_research.tokenizer import Tokenizer
 from typing import List, Dict, Optional, Tuple, Any
 
 logger = logging.getLogger(__name__)
+
+# Azure Functionsアプリの設定
+app = func.FunctionApp()
+
+@app.function_name(name="HttpTrigger")
+@app.route(route="main")
+async def main(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    HTTPトリガーでOpen Deep Researchのレポート生成を実行するAzure Functions関数。
+    
+    パラメータ：
+    - topic: レポートのトピック（必須）
+    - search_api: 使用する検索API（例: "tavily", "perplexity", "exa"など）
+    - planner_provider: プランナーモデルのプロバイダー（例: "anthropic", "openai"など）
+    - planner_model: プランナーモデル名
+    - writer_provider: ライターモデルのプロバイダー
+    - writer_model: ライターモデル名
+    - max_search_depth: 検索の最大深度
+    - report_structure: レポート構造の指定（オプション）
+    - number_of_queries: セクションごとの検索クエリ数（オプション）
+    - search_api_config: 検索API固有の設定（オプション）
+    
+    戻り値：
+    - 成功時: 生成されたレポート（マークダウン形式）をJSONで返す
+    - エラー時: エラーメッセージをJSONで返す
+    """
+    logging.info('Open Deep Research function triggered')
+    
+    try:
+        # リクエストデータを取得
+        req_body = req.get_json()
+        
+        # 必須フィールドの確認
+        if 'topic' not in req_body:
+            return func.HttpResponse(
+                json.dumps({"error": "トピックが指定されていません。'topic'フィールドは必須です。"}),
+                mimetype="application/json",
+                status_code=400
+            )
+        
+        # トピックを取得
+        topic = req_body.get('topic')
+        
+        # 設定パラメータを取得
+        thread_config = {
+            "thread_id": str(uuid.uuid4()),
+            "search_api": req_body.get('search_api', "tavily"),
+            "planner_provider": req_body.get('planner_provider', "anthropic"),
+            "planner_model": req_body.get('planner_model', "claude-3-7-sonnet-latest"),
+            "writer_provider": req_body.get('writer_provider', "anthropic"),
+            "writer_model": req_body.get('writer_model', "claude-3-5-sonnet-latest"),
+            "max_search_depth": req_body.get('max_search_depth', 2),
+        }
+        
+        # オプションのパラメータ
+        if 'report_structure' in req_body:
+            thread_config["report_structure"] = req_body.get('report_structure')
+        
+        if 'number_of_queries' in req_body:
+            thread_config["number_of_queries"] = req_body.get('number_of_queries')
+            
+        if 'search_api_config' in req_body:
+            thread_config["search_api_config"] = req_body.get('search_api_config')
+        
+        # スレッド設定を作成
+        thread = {"configurable": thread_config}
+        
+        # メモリセーバーを初期化
+        memory = MemorySaver()
+        
+        # グラフを実行
+        result = await graph.ainvoke({"topic": topic}, thread)
+        
+        # 結果からレポートを取得
+        final_report = result.get('final_report', '')
+        
+        # JSONレスポンスを返す
+        return func.HttpResponse(
+            json.dumps({
+                "report": final_report,
+                "status": "success"
+            }),
+            mimetype="application/json"
+        )
+    
+    except Exception as e:
+        logging.error(f"エラーが発生しました: {str(e)}")
+        return func.HttpResponse(
+            json.dumps({
+                "error": str(e),
+                "status": "error"
+            }),
+            mimetype="application/json",
+            status_code=500
+        )
 
 # カスタムのAzureOpenAI認証関数
 def get_azure_openai_token_authenticator():
@@ -307,94 +400,4 @@ def patched_init_chat_model(model, model_provider=None, **kwargs):
     return original_init_chat_model(model=model, model_provider=model_provider, **kwargs)
 
 # オリジナル関数を置き換え
-init_chat_model = patched_init_chat_model
-
-async def main(req: func.HttpRequest) -> func.HttpResponse:
-    """
-    HTTPトリガーでOpen Deep Researchのレポート生成を実行するAzure Functions関数。
-    
-    パラメータ：
-    - topic: レポートのトピック（必須）
-    - search_api: 使用する検索API（例: "tavily", "perplexity", "exa"など）
-    - planner_provider: プランナーモデルのプロバイダー（例: "anthropic", "openai"など）
-    - planner_model: プランナーモデル名
-    - writer_provider: ライターモデルのプロバイダー
-    - writer_model: ライターモデル名
-    - max_search_depth: 検索の最大深度
-    - report_structure: レポート構造の指定（オプション）
-    - number_of_queries: セクションごとの検索クエリ数（オプション）
-    - search_api_config: 検索API固有の設定（オプション）
-    
-    戻り値：
-    - 成功時: 生成されたレポート（マークダウン形式）をJSONで返す
-    - エラー時: エラーメッセージをJSONで返す
-    """
-    logging.info('Open Deep Research function triggered')
-    
-    try:
-        # リクエストデータを取得
-        req_body = req.get_json()
-        
-        # 必須フィールドの確認
-        if 'topic' not in req_body:
-            return func.HttpResponse(
-                json.dumps({"error": "トピックが指定されていません。'topic'フィールドは必須です。"}),
-                mimetype="application/json",
-                status_code=400
-            )
-        
-        # トピックを取得
-        topic = req_body.get('topic')
-        
-        # 設定パラメータを取得
-        thread_config = {
-            "thread_id": str(uuid.uuid4()),
-            "search_api": req_body.get('search_api', "tavily"),
-            "planner_provider": req_body.get('planner_provider', "anthropic"),
-            "planner_model": req_body.get('planner_model', "claude-3-7-sonnet-latest"),
-            "writer_provider": req_body.get('writer_provider', "anthropic"),
-            "writer_model": req_body.get('writer_model', "claude-3-5-sonnet-latest"),
-            "max_search_depth": req_body.get('max_search_depth', 2),
-        }
-        
-        # オプションのパラメータ
-        if 'report_structure' in req_body:
-            thread_config["report_structure"] = req_body.get('report_structure')
-        
-        if 'number_of_queries' in req_body:
-            thread_config["number_of_queries"] = req_body.get('number_of_queries')
-            
-        if 'search_api_config' in req_body:
-            thread_config["search_api_config"] = req_body.get('search_api_config')
-        
-        # スレッド設定を作成
-        thread = {"configurable": thread_config}
-        
-        # メモリセーバーを初期化
-        memory = MemorySaver()
-        
-        # グラフを実行
-        result = await graph.invoke({"topic": topic}, thread)
-        
-        # 結果からレポートを取得
-        final_report = result.get('final_report', '')
-        
-        # JSONレスポンスを返す
-        return func.HttpResponse(
-            json.dumps({
-                "report": final_report,
-                "status": "success"
-            }),
-            mimetype="application/json"
-        )
-    
-    except Exception as e:
-        logging.error(f"エラーが発生しました: {str(e)}")
-        return func.HttpResponse(
-            json.dumps({
-                "error": str(e),
-                "status": "error"
-            }),
-            mimetype="application/json",
-            status_code=500
-        ) 
+init_chat_model = patched_init_chat_model 
