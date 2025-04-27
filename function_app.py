@@ -7,6 +7,7 @@ from open_deep_research.graph import graph
 from open_deep_research.configuration import Configuration
 import uuid
 import os
+import traceback
 from azure.identity import DefaultAzureCredential
 from azure.core.credentials import TokenCredential, AzureKeyCredential
 from azure.search.documents import SearchClient
@@ -17,14 +18,32 @@ from functools import wraps
 import aiohttp
 from open_deep_research.utils import deduplicate_and_format_sources, select_and_execute_search
 from typing import List, Dict, Optional, Tuple, Any
+import datetime
+import sys
 
+# ロガーの設定
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+# コンソールハンドラーの設定
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.DEBUG)
+console_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(console_formatter)
+logger.addHandler(console_handler)
+
+# ファイルハンドラーの設定
+file_handler = logging.FileHandler('function_app.log')
+file_handler.setLevel(logging.DEBUG)
+file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(file_formatter)
+logger.addHandler(file_handler)
 
 # Azure Functionsアプリの設定
-app = func.FunctionApp()
+app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 
 @app.function_name(name="HttpTrigger")
-@app.route(route="main")
+@app.route(route="main", methods=["POST"])
 async def main(req: func.HttpRequest) -> func.HttpResponse:
     """
     HTTPトリガーでOpen Deep Researchのレポート生成を実行するAzure Functions関数。
@@ -45,11 +64,12 @@ async def main(req: func.HttpRequest) -> func.HttpResponse:
     - 成功時: 生成されたレポート（マークダウン形式）をJSONで返す
     - エラー時: エラーメッセージをJSONで返す
     """
-    logging.info('Open Deep Research function triggered')
+    logger.info('Open Deep Research function triggered')
     
     try:
         # リクエストデータを取得
         req_body = req.get_json()
+        logger.info(f"受信したリクエストボディ: {json.dumps(req_body, indent=2, ensure_ascii=False)}")
         
         # 必須フィールドの確認
         if 'topic' not in req_body:
@@ -61,6 +81,7 @@ async def main(req: func.HttpRequest) -> func.HttpResponse:
         
         # トピックを取得
         topic = req_body.get('topic')
+        logger.info(f"トピック: {topic}")
         
         # 設定パラメータを取得
         thread_config = {
@@ -72,28 +93,43 @@ async def main(req: func.HttpRequest) -> func.HttpResponse:
             "writer_model": req_body.get('writer_model', "claude-3-5-sonnet-latest"),
             "max_search_depth": req_body.get('max_search_depth', 2),
         }
+        logger.info(f"作成したthread_config: {json.dumps(thread_config, indent=2, ensure_ascii=False)}")
         
         # オプションのパラメータ
         if 'report_structure' in req_body:
             thread_config["report_structure"] = req_body.get('report_structure')
+            logger.info(f"report_structure: {thread_config['report_structure']}")
         
         if 'number_of_queries' in req_body:
             thread_config["number_of_queries"] = req_body.get('number_of_queries')
+            logger.info(f"number_of_queries: {thread_config['number_of_queries']}")
             
         if 'search_api_config' in req_body:
             thread_config["search_api_config"] = req_body.get('search_api_config')
-        
+            logger.info(f"search_api_config: {json.dumps(thread_config['search_api_config'], indent=2, ensure_ascii=False)}")
+            
         # スレッド設定を作成
         thread = {"configurable": thread_config}
+        logger.info(f"作成したthread: {json.dumps(thread, indent=2, ensure_ascii=False)}")
         
         # メモリセーバーを初期化
         memory = MemorySaver()
+        logger.info("MemorySaverを初期化しました")
+        
+        # グラフ実行直前のログ
+        logger.info(f"graph.ainvoke呼び出し直前: {datetime.datetime.now().isoformat()}")
+        logger.info(f"呼び出しパラメータ: topic={topic}, thread={json.dumps(thread, indent=2, ensure_ascii=False)}")
         
         # グラフを実行
         result = await graph.ainvoke({"topic": topic}, thread)
         
+        # グラフ実行直後のログ
+        logger.info(f"graph.ainvoke呼び出し完了: {datetime.datetime.now().isoformat()}")
+        logger.info(f"結果のキー: {list(result.keys()) if result else '結果なし'}")
+        
         # 結果からレポートを取得
         final_report = result.get('final_report', '')
+        logger.info(f"生成されたレポートの長さ: {len(final_report)}文字")
         
         # JSONレスポンスを返す
         return func.HttpResponse(
@@ -105,7 +141,9 @@ async def main(req: func.HttpRequest) -> func.HttpResponse:
         )
     
     except Exception as e:
-        logging.error(f"エラーが発生しました: {str(e)}")
+        logger.error(f"エラーが発生しました: {str(e)}")
+        logger.error(f"スタックトレース:\n{traceback.format_exc()}")
+            
         return func.HttpResponse(
             json.dumps({
                 "error": str(e),
@@ -374,29 +412,81 @@ def patched_init_chat_model(model, model_provider=None, **kwargs):
     """
     Azure OpenAIをマネージドIDで呼び出すためにパッチされたinit_chat_model関数
     """
+    logger.info(f"init_chat_model called with model={model}, model_provider={model_provider}, kwargs={kwargs}")
+    
     # Azure OpenAIの場合はマネージドIDを使用
     if model_provider == "azure-openai":
-        # 必要な環境変数
+        logger.info("Azure OpenAI分岐に入りました")
+        
+        # 必要な環境変数を取得
         endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
         if not endpoint:
             raise ValueError("AZURE_OPENAI_ENDPOINT 環境変数が設定されていません")
         
+        # APIバージョンを環境変数から取得
+        api_version = os.environ.get("AZURE_OPENAI_API_VERSION")
+        if not api_version:
+            raise ValueError("AZURE_OPENAI_API_VERSION 環境変数が設定されていません")
+        
+        # 環境変数の値をログ出力
+        logger.info(f"環境変数: AZURE_OPENAI_ENDPOINT={endpoint}, "
+                   f"AZURE_OPENAI_API_VERSION={api_version}, "
+                   f"OPENAI_API_VERSION={os.environ.get('OPENAI_API_VERSION')}")
+        
         # デプロイメント名として使用するモデル名
-        deployment_name = model
+        deployment_name = os.environ.get("AZURE_OPENAI_DEPLOYMENT", model)
+        logger.info(f"デプロイメント名: {deployment_name}")
         
         # TokenCredentialを使用してAzure OpenAIに接続
         token_provider = get_azure_openai_token_authenticator()
         
-        # AzureChatOpenAIインスタンスを直接作成
-        return AzureChatOpenAI(
-            azure_endpoint=endpoint,
-            azure_deployment=deployment_name,
-            openai_api_version="2023-10-01-preview",  # 適切なAPIバージョンに更新してください
-            azure_ad_token_provider=token_provider,
-            **kwargs
-        )
+        # 追加のパラメータを設定
+        azure_kwargs = {
+            "azure_endpoint": endpoint,
+            "azure_deployment": deployment_name,
+            "azure_ad_token_provider": token_provider
+        }
+        
+        # キーワード引数を結合
+        combined_kwargs = {**azure_kwargs, **kwargs}
+        logger.info(f"AzureChatOpenAIに渡すパラメータ: {combined_kwargs}")
+        
+        # リクエストメッセージの詳細をログ出力
+        if 'messages' in combined_kwargs:
+            logger.info("【Azure OpenAIリクエスト送信直前メッセージ】:")
+            for i, msg in enumerate(combined_kwargs['messages'], 1):
+                logger.info(f"メッセージ {i}:")
+                logger.info(json.dumps(msg, indent=2, ensure_ascii=False))
+        
+        # 完全なリクエスト構造をログに出力
+        logger.info("【Azure OpenAI完全リクエスト構造】:")
+        logger.info(f"URL: {endpoint}/openai/deployments/{deployment_name}/chat/completions?api-version={api_version}")
+        logger.info("Method: POST")
+        logger.info("Headers: Content-Type: application/json, Authorization: Bearer <token>")
+        
+        # リクエストボディの構造
+        request_body = {
+            "messages": combined_kwargs.get('messages', []),
+            "model": model,
+            "temperature": combined_kwargs.get('temperature', 0.7),
+            "max_tokens": combined_kwargs.get('max_tokens', 1000),
+            "top_p": combined_kwargs.get('top_p', 1.0),
+            "frequency_penalty": combined_kwargs.get('frequency_penalty', 0),
+            "presence_penalty": combined_kwargs.get('presence_penalty', 0)
+        }
+        logger.info(f"Request Body: {json.dumps(request_body, indent=2, ensure_ascii=False)}")
+        
+        # AzureChatOpenAIインスタンスを作成
+        try:
+            client = AzureChatOpenAI(**combined_kwargs)
+            logger.info("AzureChatOpenAIインスタンスの作成に成功しました")
+            return client
+        except Exception as e:
+            logger.error(f"AzureChatOpenAIインスタンスの作成に失敗しました: {str(e)}")
+            raise
     
     # それ以外のプロバイダーには元の関数を使用
+    logger.info(f"その他のプロバイダー({model_provider})の処理を実行します")
     return original_init_chat_model(model=model, model_provider=model_provider, **kwargs)
 
 # オリジナル関数を置き換え

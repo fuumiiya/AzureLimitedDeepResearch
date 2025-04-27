@@ -1,4 +1,5 @@
 from typing import Literal
+import json
 
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -80,19 +81,26 @@ async def generate_report_plan(state: ReportState, config: RunnableConfig):
 
     # Format system instructions
     system_instructions_query = report_planner_query_writer_instructions.format(topic=topic, report_organization=report_structure, number_of_queries=number_of_queries)
+    logger.info(f"[generate_report_plan] SystemMessage:\n{system_instructions_query}")
+
+    human_message = "Generate search queries that will help with planning the sections of the report."
+    logger.info(f"[generate_report_plan] HumanMessage:\n{human_message}")
 
     # Generate queries  
     results = structured_llm.invoke([SystemMessage(content=system_instructions_query),
-                                     HumanMessage(content="Generate search queries that will help with planning the sections of the report.")])
+                                     HumanMessage(content=human_message)])
 
     # Web search
     query_list = [query.search_query for query in results.queries]
+    logger.info(f"[generate_report_plan] 生成された検索クエリ:\n{json.dumps(query_list, indent=2, ensure_ascii=False)}")
 
     # Search the web with parameters
     source_str = await select_and_execute_search(search_api, query_list, params_to_pass)
+    logger.info(f"[generate_report_plan] 検索結果の長さ: {len(source_str)}文字")
 
     # Format system instructions
     system_instructions_sections = report_planner_instructions.format(topic=topic, report_organization=report_structure, context=source_str, feedback=feedback)
+    logger.info(f"[generate_report_plan] セクション生成用SystemMessage:\n{system_instructions_sections}")
 
     # Set the planner
     planner_provider = get_config_value(configurable.planner_provider)
@@ -101,6 +109,7 @@ async def generate_report_plan(state: ReportState, config: RunnableConfig):
     # Report planner instructions
     planner_message = """Generate the sections of the report. Your response must include a 'sections' field containing a list of sections. 
                         Each section must have: name, description, plan, research, and content fields."""
+    logger.info(f"[generate_report_plan] セクション生成用HumanMessage:\n{planner_message}")
 
     # Run the planner
     if planner_model == "claude-3-7-sonnet-latest":
@@ -122,6 +131,12 @@ async def generate_report_plan(state: ReportState, config: RunnableConfig):
 
     # Get sections
     sections = report_sections.sections
+    logger.info(f"[generate_report_plan] 生成されたセクション数: {len(sections)}")
+    for i, section in enumerate(sections, 1):
+        logger.info(f"[generate_report_plan] セクション {i}:")
+        logger.info(f"  名前: {section.name}")
+        logger.info(f"  説明: {section.description}")
+        logger.info(f"  リサーチ必要: {section.research}")
 
     return {"sections": sections}
 
@@ -179,9 +194,13 @@ def generate_queries(state: SectionState, config: RunnableConfig):
     topic = state["topic"]
     section = state["section"]
 
+    logger.info(f"[generate_queries] 処理開始: セクション名={section.name}")
+    logger.info(f"[generate_queries] セクション説明: {section.description}")
+
     # Get configuration
     configurable = Configuration.from_runnable_config(config)
     number_of_queries = configurable.number_of_queries
+    logger.info(f"[generate_queries] 生成するクエリ数: {number_of_queries}")
 
     # Generate queries 
     writer_provider = get_config_value(configurable.writer_provider)
@@ -193,10 +212,17 @@ def generate_queries(state: SectionState, config: RunnableConfig):
     system_instructions = query_writer_instructions.format(topic=topic, 
                                                            section_topic=section.description, 
                                                            number_of_queries=number_of_queries)
+    logger.info(f"[generate_queries] クエリ生成用SystemMessage:\n{system_instructions}")
+    logger.info(f"[generate_queries] クエリ生成用HumanMessage:\nGenerate search queries on the provided topic.")
 
     # Generate queries  
     queries = structured_llm.invoke([SystemMessage(content=system_instructions),
                                      HumanMessage(content="Generate search queries on the provided topic.")])
+
+    # 生成されたクエリをログ出力
+    logger.info(f"[generate_queries] 生成されたクエリ数: {len(queries.queries)}")
+    for i, query in enumerate(queries.queries, 1):
+        logger.info(f"[generate_queries] クエリ {i}: {query.search_query}")
 
     return {"search_queries": queries.queries}
 
@@ -219,17 +245,25 @@ async def search_web(state: SectionState, config: RunnableConfig):
     # Get state
     search_queries = state["search_queries"]
 
+    logger.info(f"[search_web] 処理開始: 検索クエリ数={len(search_queries)}")
+    for i, query in enumerate(search_queries, 1):
+        logger.info(f"[search_web] 検索クエリ {i}: {query.search_query}")
+
     # Get configuration
     configurable = Configuration.from_runnable_config(config)
     search_api = get_config_value(configurable.search_api)
     search_api_config = configurable.search_api_config or {}  # Get the config dict, default to empty
     params_to_pass = get_search_params(search_api, search_api_config)  # Filter parameters
 
+    logger.info(f"[search_web] 検索API: {search_api}")
+    logger.info(f"[search_web] 検索パラメータ: {json.dumps(params_to_pass, indent=2, ensure_ascii=False)}")
+
     # Web search
     query_list = [query.search_query for query in search_queries]
 
     # Search the web with parameters
     source_str = await select_and_execute_search(search_api, query_list, params_to_pass)
+    logger.info(f"[search_web] 検索結果の長さ: {len(source_str)}文字")
 
     return {"source_str": source_str, "search_iterations": state["search_iterations"] + 1}
 
@@ -256,6 +290,9 @@ def write_section(state: SectionState, config: RunnableConfig) -> Command[Litera
     section = state["section"]
     source_str = state["source_str"]
 
+    logger.info(f"[write_section] 処理開始: セクション名={section.name}")
+    logger.info(f"[write_section] 検索結果の長さ: {len(source_str)}文字")
+
     # Get configuration
     configurable = Configuration.from_runnable_config(config)
 
@@ -265,6 +302,8 @@ def write_section(state: SectionState, config: RunnableConfig) -> Command[Litera
                                                              section_topic=section.description, 
                                                              context=source_str, 
                                                              section_content=section.content)
+    logger.info(f"[write_section] セクション生成用SystemMessage:\n{section_writer_instructions}")
+    logger.info(f"[write_section] セクション生成用HumanMessage:\n{section_writer_inputs_formatted}")
 
     # Generate section  
     writer_provider = get_config_value(configurable.writer_provider)
@@ -276,6 +315,7 @@ def write_section(state: SectionState, config: RunnableConfig) -> Command[Litera
     
     # Write content to the section object  
     section.content = section_content.content
+    logger.info(f"[write_section] 生成されたセクションの長さ: {len(section.content)}文字")
 
     # Grade prompt 
     section_grader_message = ("Grade the report and consider follow-up questions for missing information. "
@@ -286,6 +326,8 @@ def write_section(state: SectionState, config: RunnableConfig) -> Command[Litera
                                                                                section_topic=section.description,
                                                                                section=section.content, 
                                                                                number_of_follow_up_queries=configurable.number_of_queries)
+    logger.info(f"[write_section] 評価用SystemMessage:\n{section_grader_instructions_formatted}")
+    logger.info(f"[write_section] 評価用HumanMessage:\n{section_grader_message}")
 
     # Use planner model for reflection
     planner_provider = get_config_value(configurable.planner_provider)
@@ -303,9 +345,16 @@ def write_section(state: SectionState, config: RunnableConfig) -> Command[Litera
     # Generate feedback
     feedback = reflection_model.invoke([SystemMessage(content=section_grader_instructions_formatted),
                                         HumanMessage(content=section_grader_message)])
+    
+    logger.info(f"[write_section] 評価結果: grade={feedback.grade}")
+    if feedback.grade == "fail":
+        logger.info(f"[write_section] 追加検索クエリ数: {len(feedback.follow_up_queries)}")
+        for i, query in enumerate(feedback.follow_up_queries, 1):
+            logger.info(f"[write_section] 追加クエリ {i}: {query}")
 
     # If the section is passing or the max search depth is reached, publish the section to completed sections 
     if feedback.grade == "pass" or state["search_iterations"] >= configurable.max_search_depth:
+        logger.info(f"[write_section] セクション完了: grade={feedback.grade}, search_iterations={state['search_iterations']}")
         # Publish the section to completed sections 
         return  Command(
         update={"completed_sections": [section]},
@@ -314,6 +363,7 @@ def write_section(state: SectionState, config: RunnableConfig) -> Command[Litera
 
     # Update the existing section with new content and update search queries
     else:
+        logger.info(f"[write_section] 追加リサーチが必要: grade={feedback.grade}, search_iterations={state['search_iterations']}")
         return  Command(
         update={"search_queries": feedback.follow_up_queries, "section": section},
         goto="search_web"
@@ -341,8 +391,13 @@ def write_final_sections(state: SectionState, config: RunnableConfig):
     section = state["section"]
     completed_report_sections = state["report_sections_from_research"]
     
+    logger.info(f"[write_final_sections] 処理開始: セクション名={section.name}")
+    logger.info(f"[write_final_sections] 完了済みセクションの長さ: {len(completed_report_sections)}文字")
+    
     # Format system instructions
     system_instructions = final_section_writer_instructions.format(topic=topic, section_name=section.name, section_topic=section.description, context=completed_report_sections)
+    logger.info(f"[write_final_sections] セクション生成用SystemMessage:\n{system_instructions}")
+    logger.info(f"[write_final_sections] セクション生成用HumanMessage:\nGenerate a report section based on the provided sources.")
 
     # Generate section  
     writer_provider = get_config_value(configurable.writer_provider)
@@ -354,6 +409,7 @@ def write_final_sections(state: SectionState, config: RunnableConfig):
     
     # Write content to section 
     section.content = section_content.content
+    logger.info(f"[write_final_sections] 生成されたセクションの長さ: {len(section.content)}文字")
 
     # Write the updated section to completed sections
     return {"completed_sections": [section]}
@@ -374,8 +430,16 @@ def gather_completed_sections(state: ReportState):
     # List of completed sections
     completed_sections = state["completed_sections"]
 
+    logger.info(f"[gather_completed_sections] 処理開始: 完了セクション数={len(completed_sections)}")
+    for i, section in enumerate(completed_sections, 1):
+        logger.info(f"[gather_completed_sections] セクション {i}:")
+        logger.info(f"  名前: {section.name}")
+        logger.info(f"  説明: {section.description}")
+        logger.info(f"  内容の長さ: {len(section.content)}文字")
+
     # Format completed section to str to use as context for final sections
     completed_report_sections = format_sections(completed_sections)
+    logger.info(f"[gather_completed_sections] フォーマット後の全体の長さ: {len(completed_report_sections)}文字")
 
     return {"report_sections_from_research": completed_report_sections}
 
@@ -398,12 +462,17 @@ def compile_final_report(state: ReportState):
     sections = state["sections"]
     completed_sections = {s.name: s.content for s in state["completed_sections"]}
 
+    logger.info(f"[compile_final_report] 処理開始: セクション数={len(sections)}")
+    logger.info(f"[compile_final_report] 完了セクション数={len(completed_sections)}")
+
     # Update sections with completed content while maintaining original order
     for section in sections:
         section.content = completed_sections[section.name]
+        logger.info(f"[compile_final_report] セクション '{section.name}' の内容を更新: 長さ={len(section.content)}文字")
 
     # Compile final report
     all_sections = "\n\n".join([s.content for s in sections])
+    logger.info(f"[compile_final_report] 最終レポートの長さ: {len(all_sections)}文字")
 
     return {"final_report": all_sections}
 

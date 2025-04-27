@@ -1,0 +1,141 @@
+Open Deep Research function triggered
+環境変数: OPENAI_API_VERSION=2023-10-01-preview
+リクエストボディ: {
+    "topic": "生成AIによる自治体の業務改革",
+    "search_api": "azure_ai_search",
+    "planner_provider": "azure-openai",
+    "planner_model": "gpt-4",
+    "writer_provider": "azure-openai",
+    "writer_model": "gpt-4",
+    "max_search_depth": 2,
+    "number_of_queries": 3,
+    "search_api_config": {
+        "index_name": "test-index",
+        "top_k": 5,
+        "semantic_configuration": "default-semantic-config",
+        "use_managed_identity": true
+    }
+}
+リクエストJSON: {'topic': '生成AIによる自治体の業務改革', 'search_api': 'azure_ai_search', 'planner_provider': 'azure-openai', 'planner_model': 'gpt-4', 'writer_provider': 'azure-openai', 'writer_model': 'gpt-4', 'max_search_depth': 2, 'number_of_queries': 3, 'search_api_config': {'index_name': 'test-index', 'top_k': 5, 'semantic_configuration': 'default-semantic-config', 'use_managed_identity': True}}
+【デバッグ】スレッド設定詳細:
+topic: 生成AIによる自治体の業務改革
+thread_config: {
+  "thread_id": "5e51fd48-31f1-4b43-8fba-7f309149bc98",
+  "search_api": "azure_ai_search",
+  "planner_provider": "azure-openai",
+  "planner_model": "gpt-4",
+  "writer_provider": "azure-openai",
+  "writer_model": "gpt-4",
+  "max_search_depth": 2,
+  "number_of_queries": 3,
+  "search_api_config": {
+    "index_name": "test-index",
+    "top_k": 5,
+    "semantic_configuration": "default-semantic-config",
+    "use_managed_identity": true
+  }
+}
+【デバッグ】graph.ainvoke呼び出し直前: 2025-04-27T11:56:35.861916
+呼び出しパラメータ: {"topic": "生成AIによる自治体の業務改革"}, thread={'configurable': {'thread_id': '5e51fd48-31f1-4b43-8fba-7f309149bc98', 'search_api': 'azure_ai_search', 'planner_provider': 'azure-openai', 'planner_model': 'gpt-4', 'writer_provider': 'azure-openai', 'writer_model': 'gpt-4', 'max_search_depth': 2, 'number_of_queries': 3, 'search_api_config': {'index_name': 'test-index', 'top_k': 5, 'semantic_configuration': 'default-semantic-config', 'use_managed_identity': True}}}
+【エラー】Connection error.
+スタックトレース:
+Traceback (most recent call last):
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
+    raise exc
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/httpcore/_async/connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+  File "/Users/kanazawafumiya/.pyenv/versions/3.11.5/lib/python3.11/contextlib.py", line 155, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectError: [Errno 8] nodename nor servname provided, or not known
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/openai/_base_client.py", line 1484, in request
+    response = await self._client.send(
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/httpx/_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+  File "/Users/kanazawafumiya/.pyenv/versions/3.11.5/lib/python3.11/contextlib.py", line 155, in __exit__
+    self.gen.throw(typ, value, traceback)
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: [Errno 8] nodename nor servname provided, or not known
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/function_app.py", line 132, in main
+    result = await graph.ainvoke({"topic": topic}, thread)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/langgraph/pregel/__init__.py", line 2850, in ainvoke
+    async for chunk in self.astream(
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/langgraph/pregel/__init__.py", line 2732, in astream
+    async for _ in runner.atick(
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/open_deep_research/graph.py", line 86, in generate_report_plan
+    results = await structured_llm.ainvoke([SystemMessage(content=system_instructions_query),
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/langchain_core/runnables/base.py", line 3075, in ainvoke
+    input = await coro_with_context(part(), context, create_task=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/langchain_core/runnables/base.py", line 5429, in ainvoke
+    return await self.bound.ainvoke(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py", line 391, in ainvoke
+    llm_result = await self.agenerate_prompt(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py", line 957, in agenerate_prompt
+    return await self.agenerate(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py", line 915, in agenerate
+    raise exceptions[0]
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py", line 1083, in _agenerate_with_cache
+    result = await self._agenerate(
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/langchain_openai/chat_models/base.py", line 1193, in _agenerate
+    response = await self.async_client.create(**payload)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/openai/resources/chat/completions/completions.py", line 2028, in create
+    return await self._post(
+           ^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/openai/_base_client.py", line 1742, in post
+    return await self.request(cast_to, opts, stream=stream, stream_cls=stream_cls)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kanazawafumiya/development/Azure_open_deep_research/.venv/lib/python3.11/site-packages/openai/_base_client.py", line 1516, in request
+    raise APIConnectionError(request=request) from err
+openai.APIConnectionError: Connection error.
+During task with name 'generate_report_plan' and id 'd6300fe9-7700-20b6-f93d-91cbcc9669bc'
+
