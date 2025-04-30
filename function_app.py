@@ -121,7 +121,16 @@ async def main(req: func.HttpRequest) -> func.HttpResponse:
         logger.info(f"呼び出しパラメータ: topic={topic}, thread={json.dumps(thread, indent=2, ensure_ascii=False)}")
         
         # グラフを実行
-        result = await graph.ainvoke({"topic": topic}, thread)
+        try:
+            logger.info("graph.ainvoke呼び出し開始")
+            result = await graph.ainvoke({"topic": topic}, thread)
+            logger.info("graph.ainvokeの呼び出しに成功しました")
+            logger.info(f"graph.ainvokeの戻り値: {json.dumps(result, indent=2, ensure_ascii=False)}")
+            logger.info("graph.ainvoke呼び出し完了")
+        except Exception as e:
+            logger.error(f"LangGraph起動エラー: {str(e)}")
+            logger.error(f"スタックトレース:\n{traceback.format_exc()}")
+            raise
         
         # グラフ実行直後のログ
         logger.info(f"graph.ainvoke呼び出し完了: {datetime.datetime.now().isoformat()}")
@@ -449,7 +458,6 @@ def patched_init_chat_model(model, model_provider=None, **kwargs):
         
         # キーワード引数を結合
         combined_kwargs = {**azure_kwargs, **kwargs}
-        logger.info(f"AzureChatOpenAIに渡すパラメータ: {combined_kwargs}")
         
         # リクエストメッセージの詳細をログ出力
         if 'messages' in combined_kwargs:
@@ -478,8 +486,29 @@ def patched_init_chat_model(model, model_provider=None, **kwargs):
         
         # AzureChatOpenAIインスタンスを作成
         try:
+            # combined_kwargsの中身をログ出力
+            logger.info("【AzureChatOpenAIに渡すcombined_kwargsの中身】:")
+            logger.info(json.dumps(combined_kwargs, indent=2, ensure_ascii=False))
+            
             client = AzureChatOpenAI(**combined_kwargs)
             logger.info("AzureChatOpenAIインスタンスの作成に成功しました")
+            
+            # structured_llmの中身を確認
+            if hasattr(client, '_client'):
+                logger.info("【structured_llmの中身】:")
+                logger.info(f"client._client.api_key: {getattr(client._client, 'api_key', '設定なし')}")
+                logger.info(f"client._client.base_url: {getattr(client._client, 'base_url', '設定なし')}")
+                logger.info(f"client._client.default_headers: {getattr(client._client, 'default_headers', '設定なし')}")
+                logger.info(f"client._client.timeout: {getattr(client._client, 'timeout', '設定なし')}")
+            
+            logger.info(f"client.model: {getattr(client, 'model', '設定なし')}")
+            logger.info(f"client.model_provider: {getattr(client, 'model_provider', '設定なし')}")
+            logger.info(f"client.temperature: {getattr(client, 'temperature', '設定なし')}")
+            logger.info(f"client.max_tokens: {getattr(client, 'max_tokens', '設定なし')}")
+            logger.info(f"client.top_p: {getattr(client, 'top_p', '設定なし')}")
+            logger.info(f"client.frequency_penalty: {getattr(client, 'frequency_penalty', '設定なし')}")
+            logger.info(f"client.presence_penalty: {getattr(client, 'presence_penalty', '設定なし')}")
+            
             return client
         except Exception as e:
             logger.error(f"AzureChatOpenAIインスタンスの作成に失敗しました: {str(e)}")
@@ -487,7 +516,19 @@ def patched_init_chat_model(model, model_provider=None, **kwargs):
     
     # それ以外のプロバイダーには元の関数を使用
     logger.info(f"その他のプロバイダー({model_provider})の処理を実行します")
-    return original_init_chat_model(model=model, model_provider=model_provider, **kwargs)
+    client = original_init_chat_model(model=model, model_provider=model_provider, **kwargs)
+    
+    # structured_llmの中身を確認
+    logger.info("【structured_llmの中身】:")
+    logger.info(f"client.model: {getattr(client, 'model', '設定なし')}")
+    logger.info(f"client.model_provider: {getattr(client, 'model_provider', '設定なし')}")
+    logger.info(f"client.temperature: {getattr(client, 'temperature', '設定なし')}")
+    logger.info(f"client.max_tokens: {getattr(client, 'max_tokens', '設定なし')}")
+    logger.info(f"client.top_p: {getattr(client, 'top_p', '設定なし')}")
+    logger.info(f"client.frequency_penalty: {getattr(client, 'frequency_penalty', '設定なし')}")
+    logger.info(f"client.presence_penalty: {getattr(client, 'presence_penalty', '設定なし')}")
+    
+    return client
 
 # オリジナル関数を置き換え
 init_chat_model = patched_init_chat_model 

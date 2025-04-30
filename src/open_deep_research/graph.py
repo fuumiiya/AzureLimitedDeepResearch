@@ -1,5 +1,24 @@
-from typing import Literal
+from typing import Literal, Dict, Any
 import json
+import logging
+
+# ロガーの設定
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+# コンソールハンドラーの設定
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.DEBUG)
+console_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(console_formatter)
+logger.addHandler(console_handler)
+
+# ファイルハンドラーの設定
+file_handler = logging.FileHandler('graph.log')
+file_handler.setLevel(logging.DEBUG)
+file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(file_formatter)
+logger.addHandler(file_handler)
 
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -40,105 +59,87 @@ from open_deep_research.utils import (
 
 ## Nodes -- 
 
-async def generate_report_plan(state: ReportState, config: RunnableConfig):
-    """Generate the initial report plan with sections.
-    
-    This node:
-    1. Gets configuration for the report structure and search parameters
-    2. Generates search queries to gather context for planning
-    3. Performs web searches using those queries
-    4. Uses an LLM to generate a structured plan with sections
-    
-    Args:
-        state: Current graph state containing the report topic
-        config: Configuration for models, search APIs, etc.
-        
-    Returns:
-        Dict containing the generated sections
+async def generate_report_plan(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
     """
-
-    # Inputs
-    topic = state["topic"]
-    feedback = state.get("feedback_on_report_plan", None)
-
-    # Get configuration
-    configurable = Configuration.from_runnable_config(config)
-    report_structure = configurable.report_structure
-    number_of_queries = configurable.number_of_queries
-    search_api = get_config_value(configurable.search_api)
-    search_api_config = configurable.search_api_config or {}  # Get the config dict, default to empty
-    params_to_pass = get_search_params(search_api, search_api_config)  # Filter parameters
-
-    # Convert JSON object to string if necessary
-    if isinstance(report_structure, dict):
-        report_structure = str(report_structure)
-
-    # Set writer model (model used for query writing)
-    writer_provider = get_config_value(configurable.writer_provider)
-    writer_model_name = get_config_value(configurable.writer_model)
-    writer_model = init_chat_model(model=writer_model_name, model_provider=writer_provider) 
-    structured_llm = writer_model.with_structured_output(Queries)
-
-    # Format system instructions
-    system_instructions_query = report_planner_query_writer_instructions.format(topic=topic, report_organization=report_structure, number_of_queries=number_of_queries)
-    logger.info(f"[generate_report_plan] SystemMessage:\n{system_instructions_query}")
-
-    human_message = "Generate search queries that will help with planning the sections of the report."
-    logger.info(f"[generate_report_plan] HumanMessage:\n{human_message}")
-
-    # Generate queries  
-    results = structured_llm.invoke([SystemMessage(content=system_instructions_query),
-                                     HumanMessage(content=human_message)])
-
-    # Web search
-    query_list = [query.search_query for query in results.queries]
-    logger.info(f"[generate_report_plan] 生成された検索クエリ:\n{json.dumps(query_list, indent=2, ensure_ascii=False)}")
-
-    # Search the web with parameters
-    source_str = await select_and_execute_search(search_api, query_list, params_to_pass)
-    logger.info(f"[generate_report_plan] 検索結果の長さ: {len(source_str)}文字")
-
-    # Format system instructions
-    system_instructions_sections = report_planner_instructions.format(topic=topic, report_organization=report_structure, context=source_str, feedback=feedback)
-    logger.info(f"[generate_report_plan] セクション生成用SystemMessage:\n{system_instructions_sections}")
-
-    # Set the planner
-    planner_provider = get_config_value(configurable.planner_provider)
-    planner_model = get_config_value(configurable.planner_model)
-
-    # Report planner instructions
-    planner_message = """Generate the sections of the report. Your response must include a 'sections' field containing a list of sections. 
-                        Each section must have: name, description, plan, research, and content fields."""
-    logger.info(f"[generate_report_plan] セクション生成用HumanMessage:\n{planner_message}")
-
-    # Run the planner
-    if planner_model == "claude-3-7-sonnet-latest":
-        # Allocate a thinking budget for claude-3-7-sonnet-latest as the planner model
-        planner_llm = init_chat_model(model=planner_model, 
-                                      model_provider=planner_provider, 
-                                      max_tokens=20_000, 
-                                      thinking={"type": "enabled", "budget_tokens": 16_000})
-
-    else:
-        # With other models, thinking tokens are not specifically allocated
-        planner_llm = init_chat_model(model=planner_model, 
-                                      model_provider=planner_provider)
+    レポートの計画を生成するノード
+    """
+    logger.info("="*50)
+    logger.info("[generate_report_plan] ノード開始")
+    logger.info(f"[generate_report_plan] state={json.dumps(state, indent=2, ensure_ascii=False)}")
+    logger.info(f"[generate_report_plan] config={json.dumps(config, indent=2, ensure_ascii=False)}")
+    logger.info("="*50)
     
-    # Generate the report sections
-    structured_llm = planner_llm.with_structured_output(Sections)
-    report_sections = structured_llm.invoke([SystemMessage(content=system_instructions_sections),
-                                             HumanMessage(content=planner_message)])
-
-    # Get sections
-    sections = report_sections.sections
+    # トピックを取得
+    topic = state["topic"]
+    logger.info(f"[generate_report_plan] トピック: {topic}")
+    
+    # 設定を取得
+    thread_config = config.get("configurable", {})
+    logger.info(f"[generate_report_plan] thread_config: {json.dumps(thread_config, indent=2, ensure_ascii=False)}")
+    
+    # プランナーモデルの設定を取得
+    planner_provider = thread_config.get("planner_provider", "anthropic")
+    planner_model = thread_config.get("planner_model", "claude-3-7-sonnet-latest")
+    logger.info(f"[generate_report_plan] プランナーモデル: {planner_provider}/{planner_model}")
+    
+    # プランナーモデルを初期化
+    planner = init_chat_model(
+        model=planner_model,
+        model_provider=planner_provider
+    )
+    
+    # 検索クエリの生成
+    logger.info("[generate_report_plan] 検索クエリ生成開始")
+    
+    # SystemMessageとHumanMessageの内容をログ出力
+    system_message = SystemMessage(content=PLANNER_SYSTEM_PROMPT)
+    human_message = HumanMessage(content=f"トピック: {topic}")
+    logger.info("[generate_report_plan] SystemMessage:")
+    logger.info(json.dumps(system_message.dict(), indent=2, ensure_ascii=False))
+    logger.info("[generate_report_plan] HumanMessage:")
+    logger.info(json.dumps(human_message.dict(), indent=2, ensure_ascii=False))
+    
+    # 検索クエリを生成
+    response = await planner.ainvoke([system_message, human_message])
+    logger.info("[generate_report_plan] 検索クエリ生成完了")
+    
+    # 生成されたクエリをパース
+    queries = parse_queries(response.content)
+    logger.info(f"[generate_report_plan] 生成されたクエリ数: {len(queries)}")
+    for i, query in enumerate(queries, 1):
+        logger.info(f"[generate_report_plan] クエリ {i}: {query}")
+    
+    # セクションの生成
+    logger.info("[generate_report_plan] セクション生成開始")
+    
+    # SystemMessageとHumanMessageの内容をログ出力
+    system_message = SystemMessage(content=PLANNER_SYSTEM_PROMPT)
+    human_message = HumanMessage(content=f"トピック: {topic}\n\n生成された検索クエリ:\n{json.dumps(queries, indent=2, ensure_ascii=False)}")
+    logger.info("[generate_report_plan] SystemMessage:")
+    logger.info(json.dumps(system_message.dict(), indent=2, ensure_ascii=False))
+    logger.info("[generate_report_plan] HumanMessage:")
+    logger.info(json.dumps(human_message.dict(), indent=2, ensure_ascii=False))
+    
+    # セクションを生成
+    response = await planner.ainvoke([system_message, human_message])
+    logger.info("[generate_report_plan] セクション生成完了")
+    
+    # 生成されたセクションをパース
+    sections = parse_sections(response.content)
     logger.info(f"[generate_report_plan] 生成されたセクション数: {len(sections)}")
     for i, section in enumerate(sections, 1):
         logger.info(f"[generate_report_plan] セクション {i}:")
-        logger.info(f"  名前: {section.name}")
-        logger.info(f"  説明: {section.description}")
-        logger.info(f"  リサーチ必要: {section.research}")
-
-    return {"sections": sections}
+        logger.info(f"  名前: {section['name']}")
+        logger.info(f"  説明: {section['description']}")
+        logger.info(f"  リサーチ必要: {section['needs_research']}")
+    
+    # 状態を更新
+    return {
+        "topic": topic,
+        "queries": queries,
+        "sections": sections,
+        "completed_sections": []
+    }
 
 def human_feedback(state: ReportState, config: RunnableConfig) -> Command[Literal["build_section_with_web_research"]]:
     """Process report plan and proceed to section writing automatically.
