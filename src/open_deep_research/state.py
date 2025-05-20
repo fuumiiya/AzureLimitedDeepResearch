@@ -1,4 +1,4 @@
-from typing import Annotated, List, TypedDict, Literal
+from typing import Annotated, List, TypedDict, Literal, Optional
 from pydantic import BaseModel, Field
 import operator
 
@@ -15,6 +15,13 @@ class Section(BaseModel):
     content: str = Field(
         description="The content of the section."
     )   
+
+# class Section(BaseModel):
+#     name: Optional[str]
+#     description: Optional[str]
+#     research: Optional[bool]
+#     content: Optional[str]
+
 
 class Sections(BaseModel):
     sections: List[Section] = Field(
@@ -39,21 +46,21 @@ class Feedback(BaseModel):
 
 class ReportStateInput(TypedDict):
     topic: str # Report topic
-    
+
 class ReportStateOutput(TypedDict):
     final_report: str # Final report
 
 class ReportState(TypedDict):
-    topic: str # Report topic    
+    topic: str # Report topic   
     feedback_on_report_plan: str # Feedback on the report plan
-    sections: list[Section] # List of report sections 
+    sections: list[Section] # List of report sections
     completed_sections: Annotated[list, operator.add] # Send() API key
     report_sections_from_research: str # String of any completed sections from research to write final sections
     final_report: str # Final report
 
 class SectionState(TypedDict):
     topic: str # Report topic
-    section: Section # Report section  
+    section: Section # Report section 
     search_iterations: int # Number of search iterations done
     search_queries: list[SearchQuery] # List of search queries
     source_str: str # String of formatted source content from web search

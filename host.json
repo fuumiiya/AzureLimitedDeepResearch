@@ -6,6 +6,13 @@
         "isEnabled": true,
         "excludedTypes": "Request"
       }
+    },
+    "console": {
+      "isEnabled": true
+    },
+    "fileLoggingMode": "always",
+    "logLevel": {
+      "default": "Information"
     }
   },
   "extensionBundle": {
@@ -21,4 +28,4 @@
       "dynamicThrottlesEnabled": true
     }
   }
-} 
+}

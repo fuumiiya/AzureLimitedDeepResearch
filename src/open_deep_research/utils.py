@@ -1,7 +1,8 @@
+
 import os
 import asyncio
 import requests
-import random 
+import random
 import concurrent
 import aiohttp
 import time
@@ -12,7 +13,7 @@ from urllib.parse import unquote
 from exa_py import Exa
 from linkup import LinkupClient
 from tavily import AsyncTavilyClient
-from duckduckgo_search import DDGS 
+from duckduckgo_search import DDGS
 from bs4 import BeautifulSoup
 
 from langchain_community.retrievers import ArxivRetriever
@@ -24,9 +25,15 @@ from open_deep_research.state import Section
 
 def get_config_value(value):
     """
-    Helper function to handle both string and enum cases of configuration values
+    Helper function to handle both string, enum, and passthrough cases of configuration values.
     """
-    return value if isinstance(value, str) else value.value
+    if isinstance(value, str):
+        return value
+    elif hasattr(value, "value"):
+        return value.value
+    else:
+        return value  # dict などそのまま返す
+
 
 def get_search_params(search_api: str, search_api_config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """
@@ -64,7 +71,7 @@ def deduplicate_and_format_sources(search_response, max_tokens_per_source, inclu
     """
     Takes a list of search responses and formats them into a readable string.
     Limits the raw_content to approximately max_tokens_per_source tokens.
- 
+
     Args:
         search_responses: List of search response dicts, each containing:
             - query: str
@@ -76,7 +83,7 @@ def deduplicate_and_format_sources(search_response, max_tokens_per_source, inclu
                 - raw_content: str|None
         max_tokens_per_source: int
         include_raw_content: bool
-            
+
     Returns:
         str: Formatted string with deduplicated sources
     """
@@ -84,9 +91,12 @@ def deduplicate_and_format_sources(search_response, max_tokens_per_source, inclu
     sources_list = []
     for response in search_response:
         sources_list.extend(response['results'])
-    
+
     # Deduplicate by URL
-    unique_sources = {source['url']: source for source in sources_list}
+    unique_sources = {
+    f"{source['url']}#{source['content'][:50]}": source
+    for source in sources_list
+    }
 
     # Format output
     formatted_text = "Content from sources:\n"
@@ -108,7 +118,7 @@ def deduplicate_and_format_sources(search_response, max_tokens_per_source, inclu
                 raw_content = raw_content[:char_limit] + "... [truncated]"
             formatted_text += f"Full source content limited to {max_tokens_per_source} tokens: {raw_content}\n\n"
         formatted_text += f"{'='*80}\n\n" # End section separator
-                
+
     return formatted_text.strip()
 
 def format_sections(sections: list[Section]) -> str:
@@ -121,7 +131,7 @@ Section {idx}: {section.name}
 {'='*60}
 Description:
 {section.description}
-Requires Research: 
+Requires Research:
 {section.research}
 
 Content:
@@ -142,7 +152,7 @@ async def tavily_search_async(search_queries):
             List[dict]: List of search responses from Tavily API, one per query. Each response has format:
                 {
                     'query': str, # The original search query
-                    'follow_up_questions': None,      
+                    'follow_up_questions': None,     
                     'answer': None,
                     'images': list,
                     'results': [                     # List of search results
@@ -177,15 +187,15 @@ async def tavily_search_async(search_queries):
 @traceable
 def perplexity_search(search_queries):
     """Search the web using the Perplexity API.
-    
+
     Args:
         search_queries (List[SearchQuery]): List of search queries to process
-  
+
     Returns:
         List[dict]: List of search responses from Perplexity API, one per query. Each response has format:
             {
                 'query': str,                    # The original search query
-                'follow_up_questions': None,      
+                'follow_up_questions': None,     
                 'answer': None,
                 'images': list,
                 'results': [                     # List of search results
@@ -206,7 +216,7 @@ def perplexity_search(search_queries):
         "content-type": "application/json",
         "Authorization": f"Bearer {os.getenv('PERPLEXITY_API_KEY')}"
     }
-    
+
     search_docs = []
     for query in search_queries:
 
@@ -223,22 +233,22 @@ def perplexity_search(search_queries):
                 }
             ]
         }
-        
+
         response = requests.post(
             "https://api.perplexity.ai/chat/completions",
             headers=headers,
             json=payload
         )
         response.raise_for_status()  # Raise exception for bad status codes
-        
+
         # Parse the response
         data = response.json()
         content = data["choices"][0]["message"]["content"]
         citations = data.get("citations", ["https://perplexity.ai"])
-        
+
         # Create results list for this query
         results = []
-        
+
         # First citation gets the full content
         results.append({
             "title": f"Perplexity Search, Source 1",
@@ -247,7 +257,7 @@ def perplexity_search(search_queries):
             "raw_content": content,
             "score": 1.0  # Adding score to match Tavily format
         })
-        
+
         # Add additional citations without duplicating content
         for i, citation in enumerate(citations[1:], start=2):
             results.append({
@@ -257,7 +267,7 @@ def perplexity_search(search_queries):
                 "raw_content": None,
                 "score": 0.5  # Lower score for secondary sources
             })
-        
+
         # Format response to match Tavily structure
         search_docs.append({
             "query": query,
@@ -266,32 +276,32 @@ def perplexity_search(search_queries):
             "images": [],
             "results": results
         })
-    
+
     return search_docs
 
 @traceable
-async def exa_search(search_queries, max_characters: Optional[int] = None, num_results=5, 
-                     include_domains: Optional[List[str]] = None, 
+async def exa_search(search_queries, max_characters: Optional[int] = None, num_results=5,
+                     include_domains: Optional[List[str]] = None,
                      exclude_domains: Optional[List[str]] = None,
                      subpages: Optional[int] = None):
     """Search the web using the Exa API.
-    
+
     Args:
         search_queries (List[SearchQuery]): List of search queries to process
         max_characters (int, optional): Maximum number of characters to retrieve for each result's raw content.
                                        If None, the text parameter will be set to True instead of an object.
         num_results (int): Number of search results per query. Defaults to 5.
-        include_domains (List[str], optional): List of domains to include in search results. 
+        include_domains (List[str], optional): List of domains to include in search results.
             When specified, only results from these domains will be returned.
         exclude_domains (List[str], optional): List of domains to exclude from search results.
             Cannot be used together with include_domains.
         subpages (int, optional): Number of subpages to retrieve per result. If None, subpages are not retrieved.
-        
+
     Returns:
         List[dict]: List of search responses from Exa API, one per query. Each response has format:
             {
                 'query': str,                    # The original search query
-                'follow_up_questions': None,      
+                'follow_up_questions': None,     
                 'answer': None,
                 'images': list,
                 'results': [                     # List of search results
@@ -309,15 +319,15 @@ async def exa_search(search_queries, max_characters: Optional[int] = None, num_r
     # Check that include_domains and exclude_domains are not both specified
     if include_domains and exclude_domains:
         raise ValueError("Cannot specify both include_domains and exclude_domains")
-    
+
     # Initialize Exa client (API key should be configured in your .env file)
     exa = Exa(api_key = f"{os.getenv('EXA_API_KEY')}")
-    
+
     # Define the function to process a single query
     async def process_query(query):
         # Use run_in_executor to make the synchronous exa call in a non-blocking way
         loop = asyncio.get_event_loop()
-        
+
         # Define the function for the executor with all parameters
         def exa_search_fn():
             # Build parameters dictionary
@@ -327,59 +337,59 @@ async def exa_search(search_queries, max_characters: Optional[int] = None, num_r
                 "summary": True,  # This is an amazing feature by EXA. It provides an AI generated summary of the content based on the query
                 "num_results": num_results
             }
-            
+
             # Add optional parameters only if they are provided
             if subpages is not None:
                 kwargs["subpages"] = subpages
-                
+
             if include_domains:
                 kwargs["include_domains"] = include_domains
             elif exclude_domains:
                 kwargs["exclude_domains"] = exclude_domains
-                
+
             return exa.search_and_contents(query, **kwargs)
-        
+
         response = await loop.run_in_executor(None, exa_search_fn)
-        
+
         # Format the response to match the expected output structure
         formatted_results = []
         seen_urls = set()  # Track URLs to avoid duplicates
-        
+
         # Helper function to safely get value regardless of if item is dict or object
         def get_value(item, key, default=None):
             if isinstance(item, dict):
                 return item.get(key, default)
             else:
                 return getattr(item, key, default) if hasattr(item, key) else default
-        
+
         # Access the results from the SearchResponse object
         results_list = get_value(response, 'results', [])
-        
+
         # First process all main results
         for result in results_list:
             # Get the score with a default of 0.0 if it's None or not present
             score = get_value(result, 'score', 0.0)
-            
+
             # Combine summary and text for content if both are available
             text_content = get_value(result, 'text', '')
             summary_content = get_value(result, 'summary', '')
-            
+
             content = text_content
             if summary_content:
                 if content:
                     content = f"{summary_content}\n\n{content}"
                 else:
                     content = summary_content
-            
+
             title = get_value(result, 'title', '')
             url = get_value(result, 'url', '')
-            
+
             # Skip if we've seen this URL before (removes duplicate entries)
             if url in seen_urls:
                 continue
-                
+
             seen_urls.add(url)
-            
+
             # Main result entry
             result_entry = {
                 "title": title,
@@ -388,10 +398,10 @@ async def exa_search(search_queries, max_characters: Optional[int] = None, num_r
                 "score": score,
                 "raw_content": text_content
             }
-            
+
             # Add the main result to the formatted results
             formatted_results.append(result_entry)
-        
+
         # Now process subpages only if the subpages parameter was provided
         if subpages is not None:
             for result in results_list:
@@ -399,26 +409,26 @@ async def exa_search(search_queries, max_characters: Optional[int] = None, num_r
                 for subpage in subpages_list:
                     # Get subpage score
                     subpage_score = get_value(subpage, 'score', 0.0)
-                    
+
                     # Combine summary and text for subpage content
                     subpage_text = get_value(subpage, 'text', '')
                     subpage_summary = get_value(subpage, 'summary', '')
-                    
+
                     subpage_content = subpage_text
                     if subpage_summary:
                         if subpage_content:
                             subpage_content = f"{subpage_summary}\n\n{subpage_content}"
                         else:
                             subpage_content = subpage_summary
-                    
+
                     subpage_url = get_value(subpage, 'url', '')
-                    
+
                     # Skip if we've seen this URL before
                     if subpage_url in seen_urls:
                         continue
-                        
+
                     seen_urls.add(subpage_url)
-                    
+
                     formatted_results.append({
                         "title": get_value(subpage, 'title', ''),
                         "url": subpage_url,
@@ -426,14 +436,14 @@ async def exa_search(search_queries, max_characters: Optional[int] = None, num_r
                         "score": subpage_score,
                         "raw_content": subpage_text
                     })
-        
+
         # Collect images if available (only from main results to avoid duplication)
         images = []
         for result in results_list:
             image = get_value(result, 'image')
             if image and image not in images:  # Avoid duplicate images
                 images.append(image)
-                
+
         return {
             "query": query,
             "follow_up_questions": None,
@@ -441,7 +451,7 @@ async def exa_search(search_queries, max_characters: Optional[int] = None, num_r
             "images": images,
             "results": formatted_results
         }
-    
+
     # Process all queries sequentially with delay to respect rate limit
     search_docs = []
     for i, query in enumerate(search_queries):
@@ -449,7 +459,7 @@ async def exa_search(search_queries, max_characters: Optional[int] = None, num_r
             # Add delay between requests (0.25s = 4 requests per second, well within the 5/s limit)
             if i > 0:  # Don't delay the first request
                 await asyncio.sleep(0.25)
-            
+
             result = await process_query(query)
             search_docs.append(result)
         except Exception as e:
@@ -464,12 +474,12 @@ async def exa_search(search_queries, max_characters: Optional[int] = None, num_r
                 "results": [],
                 "error": str(e)
             })
-            
+
             # Add additional delay if we hit a rate limit error
             if "429" in str(e):
                 print("Rate limit exceeded. Adding additional delay...")
                 await asyncio.sleep(1.0)  # Add a longer delay if we hit a rate limit
-    
+
     return search_docs
 
 @traceable
@@ -487,7 +497,7 @@ async def arxiv_search_async(search_queries, load_max_docs=5, get_full_documents
         List[dict]: List of search responses from arXiv, one per query. Each response has format:
             {
                 'query': str,                    # The original search query
-                'follow_up_questions': None,      
+                'follow_up_questions': None,     
                 'answer': None,
                 'images': [],
                 'results': [                     # List of search results
@@ -502,7 +512,7 @@ async def arxiv_search_async(search_queries, load_max_docs=5, get_full_documents
                 ]
             }
     """
-    
+
     async def process_single_query(query):
         try:
             # Create retriever for each query
@@ -511,23 +521,23 @@ async def arxiv_search_async(search_queries, load_max_docs=5, get_full_documents
                 get_full_documents=get_full_documents,
                 load_all_available_meta=load_all_available_meta
             )
-            
+
             # Run the synchronous retriever in a thread pool
             loop = asyncio.get_event_loop()
             docs = await loop.run_in_executor(None, lambda: retriever.invoke(query))
-            
+
             results = []
             # Assign decreasing scores based on the order
             base_score = 1.0
             score_decrement = 1.0 / (len(docs) + 1) if docs else 0
-            
+
             for i, doc in enumerate(docs):
                 # Extract metadata
                 metadata = doc.metadata
-                
+
                 # Use entry_id as the URL (this is the actual arxiv link)
                 url = metadata.get('entry_id', '')
-                
+
                 # Format content with all useful metadata
                 content_parts = []
 
@@ -569,9 +579,9 @@ async def arxiv_search_async(search_queries, load_max_docs=5, get_full_documents
                             content_parts.append(f"PDF: {pdf_link}")
                             break
 
-                # Join all content parts with newlines 
+                # Join all content parts with newlines
                 content = "\n".join(content_parts)
-                
+
                 result = {
                     'title': metadata.get('Title', ''),
                     'url': url,  # Using entry_id as the URL
@@ -580,7 +590,7 @@ async def arxiv_search_async(search_queries, load_max_docs=5, get_full_documents
                     'raw_content': doc.page_content if get_full_documents else None
                 }
                 results.append(result)
-                
+
             return {
                 'query': query,
                 'follow_up_questions': None,
@@ -599,7 +609,7 @@ async def arxiv_search_async(search_queries, load_max_docs=5, get_full_documents
                 'results': [],
                 'error': str(e)
             }
-    
+
     # Process queries sequentially with delay to respect arXiv rate limit (1 request per 3 seconds)
     search_docs = []
     for i, query in enumerate(search_queries):
@@ -607,7 +617,7 @@ async def arxiv_search_async(search_queries, load_max_docs=5, get_full_documents
             # Add delay between requests (3 seconds per ArXiv's rate limit)
             if i > 0:  # Don't delay the first request
                 await asyncio.sleep(3.0)
-            
+
             result = await process_single_query(query)
             search_docs.append(result)
         except Exception as e:
@@ -621,12 +631,12 @@ async def arxiv_search_async(search_queries, load_max_docs=5, get_full_documents
                 'results': [],
                 'error': str(e)
             })
-            
+
             # Add additional delay if we hit a rate limit error
             if "429" in str(e) or "Too Many Requests" in str(e):
                 print("ArXiv rate limit exceeded. Adding additional delay...")
                 await asyncio.sleep(5.0)  # Add a longer delay if we hit a rate limit
-    
+
     return search_docs
 
 @traceable
@@ -645,7 +655,7 @@ async def pubmed_search_async(search_queries, top_k_results=5, email=None, api_k
         List[dict]: List of search responses from PubMed, one per query. Each response has format:
             {
                 'query': str,                    # The original search query
-                'follow_up_questions': None,      
+                'follow_up_questions': None,     
                 'answer': None,
                 'images': [],
                 'results': [                     # List of search results
@@ -660,11 +670,11 @@ async def pubmed_search_async(search_queries, top_k_results=5, email=None, api_k
                 ]
             }
     """
-    
+
     async def process_single_query(query):
         try:
             # print(f"Processing PubMed query: '{query}'")
-            
+
             # Create PubMed wrapper for the query
             wrapper = PubMedAPIWrapper(
                 top_k_results=top_k_results,
@@ -672,40 +682,40 @@ async def pubmed_search_async(search_queries, top_k_results=5, email=None, api_k
                 email=email if email else "your_email@example.com",
                 api_key=api_key if api_key else ""
             )
-            
+
             # Run the synchronous wrapper in a thread pool
             loop = asyncio.get_event_loop()
-            
+
             # Use wrapper.lazy_load instead of load to get better visibility
             docs = await loop.run_in_executor(None, lambda: list(wrapper.lazy_load(query)))
-            
+
             print(f"Query '{query}' returned {len(docs)} results")
-            
+
             results = []
             # Assign decreasing scores based on the order
             base_score = 1.0
             score_decrement = 1.0 / (len(docs) + 1) if docs else 0
-            
+
             for i, doc in enumerate(docs):
                 # Format content with metadata
                 content_parts = []
-                
+
                 if doc.get('Published'):
                     content_parts.append(f"Published: {doc['Published']}")
-                
+
                 if doc.get('Copyright Information'):
                     content_parts.append(f"Copyright Information: {doc['Copyright Information']}")
-                
+
                 if doc.get('Summary'):
                     content_parts.append(f"Summary: {doc['Summary']}")
-                
+
                 # Generate PubMed URL from the article UID
                 uid = doc.get('uid', '')
                 url = f"https://pubmed.ncbi.nlm.nih.gov/{uid}/" if uid else ""
-                
+
                 # Join all content parts with newlines
                 content = "\n".join(content_parts)
-                
+
                 result = {
                     'title': doc.get('Title', ''),
                     'url': url,
@@ -714,7 +724,7 @@ async def pubmed_search_async(search_queries, top_k_results=5, email=None, api_k
                     'raw_content': doc.get('Summary', '')
                 }
                 results.append(result)
-            
+
             return {
                 'query': query,
                 'follow_up_questions': None,
@@ -728,7 +738,7 @@ async def pubmed_search_async(search_queries, top_k_results=5, email=None, api_k
             print(error_msg)
             import traceback
             print(traceback.format_exc())  # Print full traceback for debugging
-            
+
             return {
                 'query': query,
                 'follow_up_questions': None,
@@ -737,32 +747,32 @@ async def pubmed_search_async(search_queries, top_k_results=5, email=None, api_k
                 'results': [],
                 'error': str(e)
             }
-    
+
     # Process all queries with a reasonable delay between them
     search_docs = []
-    
+
     # Start with a small delay that increases if we encounter rate limiting
     delay = 1.0  # Start with a more conservative delay
-    
+
     for i, query in enumerate(search_queries):
         try:
             # Add delay between requests
             if i > 0:  # Don't delay the first request
                 # print(f"Waiting {delay} seconds before next query...")
                 await asyncio.sleep(delay)
-            
+
             result = await process_single_query(query)
             search_docs.append(result)
-            
+
             # If query was successful with results, we can slightly reduce delay (but not below minimum)
             if result.get('results') and len(result['results']) > 0:
                 delay = max(0.5, delay * 0.9)  # Don't go below 0.5 seconds
-            
+
         except Exception as e:
             # Handle exceptions gracefully
             error_msg = f"Error in main loop processing PubMed query '{query}': {str(e)}"
             print(error_msg)
-            
+
             search_docs.append({
                 'query': query,
                 'follow_up_questions': None,
@@ -771,10 +781,10 @@ async def pubmed_search_async(search_queries, top_k_results=5, email=None, api_k
                 'results': [],
                 'error': str(e)
             })
-            
+
             # If we hit an exception, increase delay for next query
             delay = min(5.0, delay * 1.5)  # Don't exceed 5 seconds
-    
+
     return search_docs
 
 @traceable
@@ -825,22 +835,22 @@ async def linkup_search(search_queries, depth: Optional[str] = "standard"):
 @traceable
 async def duckduckgo_search(search_queries):
     """Perform searches using DuckDuckGo
-    
+
     Args:
         search_queries (List[str]): List of search queries to process
-        
+
     Returns:
         List[dict]: List of search results
     """
     async def process_single_query(query):
         # Execute synchronous search in the event loop's thread pool
         loop = asyncio.get_event_loop()
-        
+
         def perform_search():
             results = []
             with DDGS() as ddgs:
                 ddg_results = list(ddgs.text(query, max_results=5))
-                
+
                 # Format results
                 for i, result in enumerate(ddg_results):
                     results.append({
@@ -857,13 +867,13 @@ async def duckduckgo_search(search_queries):
                 'images': [],
                 'results': results
             }
-            
+
         return await loop.run_in_executor(None, perform_search)
 
     # Execute all queries concurrently
     tasks = [process_single_query(query) for query in search_queries]
     search_docs = await asyncio.gather(*tasks)
-    
+
     return search_docs
 
 @traceable
@@ -886,11 +896,11 @@ async def google_search_async(search_queries: Union[str, List[str]], max_results
     api_key = os.environ.get("GOOGLE_API_KEY")
     cx = os.environ.get("GOOGLE_CX")
     use_api = bool(api_key and cx)
-    
+
     # Handle case where search_queries is a single string
     if isinstance(search_queries, str):
         search_queries = [search_queries]
-    
+
     # Define user agent generator
     def get_useragent():
         """Generates a random user agent string."""
@@ -899,25 +909,25 @@ async def google_search_async(search_queries: Union[str, List[str]], max_results
         ssl_mm_version = f"SSL-MM/{random.randint(1, 2)}.{random.randint(3, 5)}"
         openssl_version = f"OpenSSL/{random.randint(1, 3)}.{random.randint(0, 4)}.{random.randint(0, 9)}"
         return f"{lynx_version} {libwww_version} {ssl_mm_version} {openssl_version}"
-    
+
     # Create executor for running synchronous operations
     executor = None if use_api else concurrent.futures.ThreadPoolExecutor(max_workers=5)
-    
+
     # Use a semaphore to limit concurrent requests
     semaphore = asyncio.Semaphore(5 if use_api else 2)
-    
+
     async def search_single_query(query):
         async with semaphore:
             try:
                 results = []
-                
+
                 # API-based search
                 if use_api:
                     # The API returns up to 10 results per request
                     for start_index in range(1, max_results + 1, 10):
                         # Calculate how many results to request in this batch
                         num = min(10, max_results - (start_index - 1))
-                        
+
                         # Make request to Google Custom Search API
                         params = {
                             'q': query,
@@ -934,9 +944,9 @@ async def google_search_async(search_queries: Union[str, List[str]], max_results
                                     error_text = await response.text()
                                     print(f"API error: {response.status}, {error_text}")
                                     break
-                                    
+
                                 data = await response.json()
-                                
+
                                 # Process search results
                                 for item in data.get('items', []):
                                     result = {
@@ -947,14 +957,14 @@ async def google_search_async(search_queries: Union[str, List[str]], max_results
                                         "raw_content": item.get('snippet', '')
                                     }
                                     results.append(result)
-                        
+
                         # Respect API quota with a small delay
                         await asyncio.sleep(0.2)
-                        
+
                         # If we didn't get a full page of results, no need to request more
                         if not data.get('items') or len(data.get('items', [])) < num:
                             break
-                
+
                 # Web scraping based search
                 else:
                     # Add delay between requests
@@ -970,7 +980,7 @@ async def google_search_async(search_queries: Union[str, List[str]], max_results
                             fetched_results = 0
                             fetched_links = set()
                             search_results = []
-                            
+
                             while fetched_results < max_results:
                                 # Send request to Google
                                 resp = requests.get(
@@ -992,27 +1002,27 @@ async def google_search_async(search_queries: Union[str, List[str]], max_results
                                     }
                                 )
                                 resp.raise_for_status()
-                                
+
                                 # Parse results
                                 soup = BeautifulSoup(resp.text, "html.parser")
                                 result_block = soup.find_all("div", class_="ezO2md")
                                 new_results = 0
-                                
+
                                 for result in result_block:
                                     link_tag = result.find("a", href=True)
                                     title_tag = link_tag.find("span", class_="CVA68e") if link_tag else None
                                     description_tag = result.find("span", class_="FrIlee")
-                                    
+
                                     if link_tag and title_tag and description_tag:
                                         link = unquote(link_tag["href"].split("&")[0].replace("/url?q=", ""))
-                                        
+
                                         if link in fetched_links:
                                             continue
-                                        
+
                                         fetched_links.add(link)
                                         title = title_tag.text
                                         description = description_tag.text
-                                        
+
                                         # Store result in the same format as the API results
                                         search_results.append({
                                             "title": title,
@@ -1021,42 +1031,42 @@ async def google_search_async(search_queries: Union[str, List[str]], max_results
                                             "score": None,
                                             "raw_content": description
                                         })
-                                        
+
                                         fetched_results += 1
                                         new_results += 1
-                                        
+
                                         if fetched_results >= max_results:
                                             break
-                                
+
                                 if new_results == 0:
                                     break
-                                    
+
                                 start += 10
                                 time.sleep(1)  # Delay between pages
-                            
+
                             return search_results
-                                
+
                         except Exception as e:
                             print(f"Error in Google search for '{query}': {str(e)}")
                             return []
-                    
+
                     # Execute search in thread pool
                     loop = asyncio.get_running_loop()
                     search_results = await loop.run_in_executor(
-                        executor, 
+                        executor,
                         lambda: google_search(query, max_results)
                     )
-                    
+
                     # Process the results
                     results = search_results
-                
+
                 # If requested, fetch full page content asynchronously (for both API and web scraping)
                 if include_raw_content and results:
                     content_semaphore = asyncio.Semaphore(3)
-                    
+
                     async with aiohttp.ClientSession() as session:
                         fetch_tasks = []
-                        
+
                         async def fetch_full_content(result):
                             async with content_semaphore:
                                 url = result['url']
@@ -1064,14 +1074,14 @@ async def google_search_async(search_queries: Union[str, List[str]], max_results
                                     'User-Agent': get_useragent(),
                                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
                                 }
-                                
+
                                 try:
                                     await asyncio.sleep(0.2 + random.random() * 0.6)
                                     async with session.get(url, headers=headers, timeout=10) as response:
                                         if response.status == 200:
                                             # Check content type to handle binary files
                                             content_type = response.headers.get('Content-Type', '').lower()
-                                            
+
                                             # Handle PDFs and other binary files
                                             if 'application/pdf' in content_type or 'application/octet-stream' in content_type:
                                                 # For PDFs, indicate that content is binary and not parsed
@@ -1089,14 +1099,14 @@ async def google_search_async(search_queries: Union[str, List[str]], max_results
                                     print(f"Warning: Failed to fetch content for {url}: {str(e)}")
                                     result['raw_content'] = f"[Error fetching content: {str(e)}]"
                                 return result
-                        
+
                         for result in results:
                             fetch_tasks.append(fetch_full_content(result))
-                        
+
                         updated_results = await asyncio.gather(*fetch_tasks)
                         results = updated_results
                         print(f"Fetched full content for {len(results)} results")
-                
+
                 return {
                     "query": query,
                     "follow_up_questions": None,
@@ -1113,14 +1123,14 @@ async def google_search_async(search_queries: Union[str, List[str]], max_results
                     "images": [],
                     "results": []
                 }
-    
+
     try:
         # Create tasks for all search queries
         search_tasks = [search_single_query(query) for query in search_queries]
-        
+
         # Execute all searches concurrently
         search_results = await asyncio.gather(*search_tasks)
-        
+
         return search_results
     finally:
         # Only shut down executor if it was created
@@ -1131,18 +1141,21 @@ async def google_search_async(search_queries: Union[str, List[str]], max_results
 
 async def select_and_execute_search(search_api: str, query_list: list[str], params_to_pass: dict) -> str:
     """Select and execute the appropriate search API.
-    
+
     Args:
         search_api: Name of the search API to use
         query_list: List of search queries to execute
         params_to_pass: Parameters to pass to the search API
-        
+
     Returns:
         Formatted string containing search results
-        
+
     Raises:
         ValueError: If an unsupported search API is specified
     """
+    logger.info(f"Received search_api: {search_api}")  # ログで確認
+
+
     if search_api == "tavily":
         search_results = await tavily_search_async(query_list, **params_to_pass)
         return deduplicate_and_format_sources(search_results, max_tokens_per_source=4000, include_raw_content=False)
@@ -1166,6 +1179,9 @@ async def select_and_execute_search(search_api: str, query_list: list[str], para
         return deduplicate_and_format_sources(search_results, max_tokens_per_source=4000)
     elif search_api == "googlesearch":
         search_results = await google_search_async(query_list, **params_to_pass)
+        return deduplicate_and_format_sources(search_results, max_tokens_per_source=4000)
+    elif search_api == "azure_ai_search":
+        search_results = await azure_ai_search_async(query_list, **params_to_pass)
         return deduplicate_and_format_sources(search_results, max_tokens_per_source=4000)
     else:
         raise ValueError(f"Unsupported search API: {search_api}")
