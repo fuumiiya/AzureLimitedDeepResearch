@@ -11,9 +11,10 @@ Open Deep Researchをサーバーレス環境で実行するためのAzure Funct
 このプロジェクトは[langchain-ai/open_deep_research](https://github.com/langchain-ai/open_deep_research/tree/main/src/open_deep_research)を元にして、以下の拡張機能を追加しています：
 
 1. **Azure Functions統合** - オリジナルのLangGraphワークフローをHTTPトリガーで呼び出せるように実装
-2. **マネージドID認証** - Azure OpenAIへのアクセスにマネージドIDを使用する機能を追加
+2. **マネージドID認証** - Azure OpenAIとAzure AI SearchへのアクセスにマネージドIDを使用する機能を追加
 3. **Azure AI Search対応** - Azure AI Searchを使ったベクトル検索機能を追加し、独自のドキュメントコレクションを活用可能
 4. **自動実行フロー** - 人間の介入なしで完全自動化されたレポート生成を実現
+5. **詳細なロギング** - 各処理ステップでの詳細なログ出力機能を追加
 
 ## セットアップ方法
 
@@ -35,12 +36,13 @@ Open Deep Researchをサーバーレス環境で実行するためのAzure Funct
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
     
     "AZURE_OPENAI_ENDPOINT": "https://<your-resource-name>.openai.azure.com/",
-    "AZURE_OPENAI_API_KEY": "<your_azure_openai_api_key>",
+    "AZURE_OPENAI_API_VERSION": "2023-10-01-preview",
+    "AZURE_OPENAI_DEPLOYMENT": "<your-deployment-name>",
     
     "AZURE_SEARCH_SERVICE": "<your-search-service-name>",
-    "AZURE_SEARCH_KEY": "<your-search-api-key>",
     "AZURE_SEARCH_INDEX": "<your-search-index-name>",
-    "USE_MANAGED_IDENTITY": "false"
+    
+    "USE_MANAGED_IDENTITY": "true"
   }
 }
 ```
@@ -63,7 +65,9 @@ Open Deep Researchをサーバーレス環境で実行するためのAzure Funct
    マネージドID認証を使用するには、以下の環境変数のみが必要です：
    ```json
    {
-     "AZURE_OPENAI_ENDPOINT": "https://<your-resource-name>.openai.azure.com/"
+     "AZURE_OPENAI_ENDPOINT": "https://<your-resource-name>.openai.azure.com/",
+     "AZURE_OPENAI_API_VERSION": "2023-10-01-preview",
+     "AZURE_OPENAI_DEPLOYMENT": "<your-deployment-name>"
    }
    ```
 
@@ -90,7 +94,6 @@ Open Deep Researchをサーバーレス環境で実行するためのAzure Funct
 2. 以下の環境変数を設定します：
    ```
    AZURE_SEARCH_SERVICE=<あなたのサービス名>
-   AZURE_SEARCH_KEY=<あなたのAPIキー>
    AZURE_SEARCH_INDEX=<あなたのインデックス名>
    ```
 
@@ -107,23 +110,35 @@ Open Deep Researchをサーバーレス環境で実行するためのAzure Funct
      "index_name": "your-index-name",  // デフォルトは環境変数 AZURE_SEARCH_INDEX の値
      "top_k": 5,                       // 返される結果の数（デフォルト: 5）
      "semantic_configuration": "your-semantic-config-name",  // デフォルト: "default-semantic-config"
-     "vector_fields": ["embedding"]    // ベクトル検索に使用するフィールド名
+     "use_managed_identity": true      // マネージドIDを使用するかどうか（デフォルト: false）
    }
    ```
 
-#### 重要な注意事項
+### ロギング機能
 
-- **semantic_configuration**: セマンティック検索設定の名前を指定します。デフォルト値は "default-semantic-config" です。セマンティック設定が存在しない場合、アプリケーションは標準的なハイブリッド検索（キーワード + ベクトル）に自動的にフォールバックします。
+このアプリケーションには、以下のような詳細なロギング機能が実装されています：
 
-- **レポート生成時間**: 大量のドキュメントを検索する場合、処理に時間がかかることがあります。
+1. **処理ステップのログ**:
+   - レポート生成計画の作成
+   - 検索クエリの生成
+   - 検索結果の取得
+   - セクションの生成
+   - 最終レポートのコンパイル
 
-- **APIキーの使用とコスト**: Azure AI Searchの使用には料金が発生します。使用状況とコストを監視してください。
+2. **エラーと例外のログ**:
+   - API呼び出しのエラー
+   - 認証エラー
+   - 処理中の例外
 
-- **レート制限**: 大量のリクエストを送信する場合は、Azure AI Searchのレート制限に注意してください。
+3. **デバッグ情報**:
+   - リクエストパラメータ
+   - 環境変数の設定状態
+   - API呼び出しの詳細
 
-- **アクセス権限**: マネージドIDを使用する場合は、適切なアクセス権限があることを確認してください。
-
-- **インデックスのセットアップ**: Azure AI Searchを使用するには、適切にインデックスをセットアップし、ベクトル検索とセマンティック設定の両方を有効にする必要があります。
+ログは以下の場所に出力されます：
+- コンソール出力
+- ファイル出力（`function_app.log`）
+- Azure Functionsのログストリーム
 
 ### デプロイ
 
@@ -153,16 +168,16 @@ curl -X POST https://<app-name>.azurewebsites.net/api/generate-report \
     "topic": "AIにおける大規模言語モデルの最近の進歩",
     "search_api": "azure_ai_search",
     "planner_provider": "azure-openai",
-    "planner_model": "gpt-4o",
+    "planner_model": "gpt-4",
     "writer_provider": "azure-openai",
-    "writer_model": "gpt-4o",
+    "writer_model": "gpt-4",
     "max_search_depth": 2,
     "number_of_queries": 3,
     "search_api_config": {
       "index_name": "ai-documents",
       "top_k": 5,
       "semantic_configuration": "your-semantic-config",
-      "vector_fields": ["contentVector"]
+      "use_managed_identity": true
     }
   }'
 ```
@@ -178,16 +193,16 @@ curl -X POST https://<app-name>.azurewebsites.net/api/generate-report \
 
 ## 設定オプション
 
-## リクエストパラメータ
+### リクエストパラメータ
 
-### 必須パラメータ
+#### 必須パラメータ
 
 | パラメータ | 説明 | 例 |
 |------------|------|----|
 | `topic` | レポートのトピック | "生成AIによる自治体の業務改革" |
 | `search_api` | 使用する検索API | "azure_ai_search" |
 
-### オプションパラメータ
+#### オプションパラメータ
 
 | パラメータ | 説明 | デフォルト値 | 例 |
 |------------|------|------------|----|
@@ -216,6 +231,7 @@ curl -X POST https://<app-name>.azurewebsites.net/api/generate-report \
 - 大量のリクエストを送信する場合は、レート制限に注意してください。
 - マネージドIDを使用する場合、関数アプリに適切なアクセス権が付与されていることを確認してください。
 - Azure AI Searchを使用する場合は、事前にインデックスを適切に設定し、ベクトル検索とセマンティック設定が有効になっていることを確認してください。セマンティック設定がない場合は、通常のハイブリッド検索にフォールバックします。
+- ログファイルのサイズに注意し、必要に応じてログローテーションを設定してください。
 
 # Open Deep Research
  
