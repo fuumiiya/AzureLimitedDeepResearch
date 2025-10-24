@@ -9,12 +9,16 @@ local.settings.json
 .venv
 venv/
 ENV/
+.env
+.env.local
+.env.*.local
 
 # Azure Functions artifacts
-bin
-obj
+bin/
+obj/
 appsettings.json
 .vscode/
+.azure/
 
 # Distribution / packaging
 .Python
@@ -42,8 +46,39 @@ wheels/
 *.code-workspace
 
 # Logs
-logs
+logs/
 *.log
+function_app.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Azure specific
+.azure/
+azure-pipelines.yml

@@ -2,7 +2,7 @@ curl
 -X POST http://localhost:7071/api/main \
 -H "Content-Type: application/json" \
 -d '{
-    "topic": "世田谷区で過去10年間にわたって行ってきた地域包括ケアの取組みについて詳細なreportを作成して",
+    "topic": "⚪︎⚪︎区で過去10年間にわたって行ってきた地域包括ケアの取組みについて詳細なreportを作成して",
     "search_api": "azure_ai_search",
     "planner_provider": "azure-openai",
     "planner_model": "gpt-4o",
