@@ -1,4 +1,15 @@
-# Open Deep Research - Azure Functions
+# Azure Limited Deep Research
+
+Azure OpenAI と Azure AI Search を統合し、LangGraph によるエージェントワークフローを構築した PoC。  
+Azure Functions 上で Managed Identity を活用し、安全な検索・レポート生成を実装しています。
+
+## 技術構成
+- Azure Functions (Python)
+- Azure OpenAI Service / Azure AI Search
+- LangChain / LangGraph
+- Bing Search API
+
+---
 
 Open Deep Researchをサーバーレス環境で実行するためのAzure Functions実装です。
 
